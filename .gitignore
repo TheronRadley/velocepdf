@@ -1,8 +1,29 @@
-node_modules
-src-tauri/target
-dist
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+venv/
+.venv/
+dist/
 *.log
 .DS_Store
 .env
-coverage
-__screenshots__
+.pytest_cache/
+.pytest_cache
+
+# Native
+app/native/veloce-pdfinfo
+app/veloce_search*.so
+build/
+
+# Legacy web
+node_modules
+src-tauri/target
+web-legacy/node_modules
+web-legacy/dist
+
+# Editors
+.vscode/
+.idea/

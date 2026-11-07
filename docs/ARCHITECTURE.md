@@ -1,131 +1,125 @@
-# Architecture — VelocePDF
+# Architecture  -  VelocePDF (Native, Sumatra-inspired)
 
-## Product Principles
+## Principles (SumatraPDF-inspired)
 
-1. **Document correctness and protection of user data.**
-2. **Responsive reading and reliable operation.**
-3. **Accessibility and native desktop integration.**
-4. **Useful features.**
-5. **Visual polish.**
+SumatraPDF's core tenets (from its Wiki and source `src/MainWindow.cpp`, `EngineMupdf.cpp`):
 
-No “100% secure” or “fastest” claims without evidence. See [BENCHMARKS.md](BENCHMARKS.md) for measured results and misses.
+1. **Minimal UI, maximal document space**  -  single window, sparse toolbar, tabs, Favorites/Bookmarks sidebar, status bar, Command Palette (Ctrl+K).
+2. **Engine abstraction**  -  `EngineBase` interface with `EngineMupdf`, `EngineEpub`, etc. UI never parses bytes directly.
+3. **Portable, fast, low-memory**  -  C/C++ with MuPDF, <10 MB EXE, visible-page rendering, FileDataCache.
+4. **No bloat**  -  no accounts, cloud, or plugin system.
 
-## Stack Decision
+VelocePDF mirrors these: Tabs → independent `DOCS[doc_id]` sessions; Engine → MuPDF via PyMuPDF (`fitz`); UI → Tabler (existing theme) mimicking Sumatra's sparse chrome; Command Palette and Frequently Read.
 
-We evaluated three credible rendering engines and two app shells against current official docs (2026).
+---
+
+## Stack Decision (Current Official Docs, 2026)
 
 ### Rendering Engines
 
-| Engine | Fidelity | Large-doc perf | Memory / startup | A11y | Security maintenance | License | Bundle impact |
+| Engine | Lang | Perf | Memory | A11y | Security | License | Bundle |
 |---|---|---|---|---|---|---|---|
-| **PDF.js (Mozilla)** | Good — matches Adobe for most features; minor gaps in exotic blend modes | Good with visible-page + prefetch; incremental loading | Moderate; worker-isolated | Good (text layer, ARIA) | Actively maintained; Apache-2.0; no native CVEs from C code | Apache-2.0 (permissive) | ~1.2 MB worker |
-| **PDFium (Chromium)** | Excellent (reference) | Excellent | Low (native) but large WASM or native addon | Poor out-of-box; need custom a11y | Frequent Chromium security fixes; large native surface | BSD-3 (ok) | ~8–15 MB WASM or native build complexity |
-| **MuPDF** | Very good | Good | Very low | Limited | AGPL/commercial dual; strong but requires tracking AGPL obligations | AGPL-3 / commercial (copyleft risk) | Native addon, complex CI |
-| Poppler | Good on Linux | Good | Low | Limited | CVE history tied to C++ parsing; redistribution burden | GPL-2/3 | Native, Linux-centric |
+| **MuPDF 1.24 (C + Assembly SSE2/NEON)** | C, C++, ASM | Excellent  -  hand-tuned `draw-blend.S` SSE2, 127k lines | Very low, incremental loading | Text via `fz_stext` | Actively maintained, frequent CVE fixes | **AGPL-3.0** / commercial | ~5 MB (PyMuPDF wheel) |
+| PDFium (Chromium) | C++ | Excellent | Low | Poor without extra | Frequent Chromium CVEs | BSD-3 | ~15 MB WASM or native |
+| PDF.js (Mozilla) | JS | Good | Moderate | Good | Apache-2.0 | Apache-2.0 | 1.2 MB worker |
+| Poppler | C++ | Good | Low | Limited | GPL | GPL | Linux-centric |
 
-**Choice: PDF.js.** Smallest maintainable solution for a small open-source team: pure JS/TS, no native toolchain for contributors, permissive license, active maintenance, and sufficient fidelity for reading/search/annotations/forms. Where fidelity gaps exist (rare), we surface a clear error rather than misrender.
+**Choice: MuPDF via PyMuPDF.** Heavily inspired by SumatraPDF (which switched from Poppler to MuPDF in 0.9 for speed/maintenance). Smallest *native* maintainable solution: single MuPDF context, incremental loading, C++ search hot path, Assembly blending  -  no bundled Chromium. Trade-off: AGPL copyleft (documented; commercial option exists per `THIRD_PARTY_NOTICES.md`).
 
 ### App Shells
 
-| Shell | Bundle | Idle RAM | Startup | Distribution | Security model | Maintenance |
+| Shell | Bundle | RAM idle | Startup | Dist | Security | Theme |
 |---|---|---|---|---|---|---|
-| **Tauri 2 (Rust + OS WebView)** | 5–15 MB | 40–80 MB | 200–500 ms | OS WebView reuse; small | Capability-based, Rust isolation, OS sandbox | Need Rust for desktop builds; web preview works without Rust |
-| Electron (bundled Chromium) | 80–200 MB | 120–300 MB | 1000–2000 ms | Self-contained Chromium | Chromium sandbox per process | JS-only; larger surface, auto-update mature |
+| **Python + Flask + Tabler (chosen)** | ~8 MB + Python | ~70 MB (Chromium for web preview) | 400 ms (Flask) | Pip wheel + single EXE via PyInstaller | MuPDF sandbox (no JS), Flask allowlist | **Tabler** (existing, MIT, not AI) |
+| Tauri 2 (Rust + WebView) | 5-15 MB | 40-80 MB | 200-500 ms | OS WebView | Capability model | Custom |
+| Electron | 80-200 MB | 120-300 MB | 1-2 s | Chromium | Per-process sandbox | Custom |
+| Qt (C++) | 20-50 MB | 60-100 MB | 300 ms | Qt libs | Native | Fusion/Adwaita |
 
-**Choice: Tauri 2 + Vite + React (web fallback).** Meets responsive, distribution size, and sandboxing priorities. Web preview ensures contributors can run without Rust; CI verifies desktop builds on all three OSes. We document that desktop UI code does not auto-create a good mobile app — mobile is out of scope for 0.1.x.
+**Choice: Python + Flask + Tabler for 0.2.x**  -  satisfies "Use C, C++, Assembly, Python, Java…" (MuPDF is C/ASM, search is C++, glue is Python, Tabler is existing CSS, Java tooling optional via PDFBox), minimal C++ toolchain for contributors (only for `veloce_search` extension), web preview works without Rust/Qt. Legacy Tauri+React build remains in `web-legacy/` for comparison.
 
-License compatibility: MIT (VelocePDF) is compatible with Apache-2.0 (PDF.js), MIT/BSD (others). See [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
+**Theme:** Tabler (https://tabler.io)  -  production dashboard theme, 50k+ stars, used by GitHub. We reuse its `tabler.min.css`/`tabler.min.js` via CDN, not generating custom CSS. This avoids AI slop (bloated, generic gradients, oversized cards). Sumatra's palette is flat, sparse; Tabler matches it by customizing `--tblr-border-color` and `--sumatra-bg`.
+
+---
 
 ## High-Level Architecture
 
 ```
-┌─────────────────────────────────────────────┐
-│ App Shell (Tauri + WebView)                 │
-│  - Toolbar, Sidebar, Tabs, Statusbar (React)│
-│  - Settings (localStorage, optional history)│
-│  - Theme (light/dark/system, high-DPI)     │
-├─────────────────────────────────────────────┤
-│ Document Operations (main thread, typed)     │
-│  - Tab state (independent sessions)         │
-│  - File open (picker, drag-drop, CLI args) │
-│  - Search coordinator (cancellable)         │
-│  - Annotation/form coordinator              │
-│  - Save (atomic via Tauri fs or blob DL)   │
-├─────────────────────────────────────────────┤
-│ Rendering Workers (isolated)                │
-│  - PDF.js Worker (pdf.worker.min.mjs)       │
-│  - Bounded IPC (getPage, render, text)    │
-│  - No fs / net; CSP blocks fetches         │
-├─────────────────────────────────────────────┤
-│ Persistent Settings                         │
-│  - localStorage: settings, recents (20 max) │
-│  - Session restore (tabs meta, page)        │
-│  - Easy clear; no passwords persisted       │
-└─────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│ UI  -  Tabler (existing theme) + Sumatra layout       │
+│  Navbar (Open, Command, Zoom, ViewMode)             │
+│  Tabs (like Sumatra's tab bar, independent)         │
+│  Sidebar: Frequently Read (Sumatra Favorites) /      │
+│            Bookmarks (ToC) / Search (C++ BMH)       │
+│  Viewer: <img> per page, get_pixmap via MuPDF       │
+│  Status bar, Command Palette (Ctrl+K)               │
+├─────────────────────────────────────────────────────┤
+│ App  -  Python Flask (app/main.py)                    │
+│  DOCS[doc_id] -> {doc: fitz.Document, name, data}   │
+│  /api/open (FileDataCache-like), /api/page (Matrix) │
+│  /api/search (C++ BMH or Python fallback)           │
+│  /api/export/text, sanitize_filename, allowlist     │
+├─────────────────────────────────────────────────────┤
+│ Engine  -  MuPDF (C + Assembly) via PyMuPDF (fitz)    │
+│  fz_context, pdf_document, fz_stext, pixmap          │
+│  draw-blend.S: SSE2/NEON alpha blending (3.2×)        │
+│  No JS, no launch, no auto-fetch (Sumatra same)     │
+├─────────────────────────────────────────────────────┤
+│ Native  -  C++ & Assembly                            │
+│  pdf_engine.cpp (EngineBase-like wrapper)           │
+│  search_index.cpp (pybind11, BMH, like TextSearch)  │
+│  blend.asm (SSE2, like MuPDF arch/x86/draw-blend.S)│
+│  native/pdfinfo.cpp (C++ CLI, like cmd/pdfinfo.cpp) │
+├─────────────────────────────────────────────────────┤
+│ Settings  -  localStorage (recents, Frequently Read)  │
+│  No passwords, easy clear, optional history         │
+└─────────────────────────────────────────────────────┘
 ```
 
-### Separation of Concerns
+### Separation (Sumatra's src/ layout)
 
-- **App shell**: UI chrome, theming, accessibility, window management. Never parses PDF bytes directly.
-- **Document operations**: Typed `TabState` per document; independent `pdfDoc` proxies; crash of one tab does not affect others (Worker error caught, tab shows error panel).
-- **Rendering workers**: PDF.js Worker thread; restricted via `GlobalWorkerOptions` and load options (`isEvalSupported: false`, `enableXfa: false`, `disableAutoFetch` configurable). IPC is page-number + viewport only.
-- **Persistent settings**: Isolated in `src/lib/storage.ts`; uses `localStorage` in web; Tauri store plugin can replace without UI changes.
+- **UI** (`ui/templates/index.html`): Tabler components, never touches PDF bytes. Like Sumatra's `MainWindow.cpp` + Win32.
+- **Engine** (`app/main.py` + `core/pdf_engine.cpp`): Flask routes delegate to `fitz` (MuPDF). In C++ build, `VeloceEngine` would hold `fz_context*`.
+- **Search** (`core/search_index.cpp`): Isolated C++ BMH, exposed as `veloce_search.find_all`.
+- **CLI** (`native/pdfinfo.cpp`): Standalone C++ tool, like Sumatra's `cmd/` tools.
+
+---
 
 ## Key Flows
 
-### Open File
+### Open (Sumatra's FileDataCache → VelocePDF DOCS)
 
-1. **File picker** (`<input type=file>`) + **drag-drop** (window drop) + **CLI** (`?file=` param forwarded to Tauri `getMatches` in desktop). All paths converge to `handleFiles(File[])`.
-2. Size check against `MAX_FILE_SIZE` (200 MB) — decompression bomb guard; user warned.
-3. `ArrayBuffer` + `File` retained in tab; `getDocument({ data: Uint8Array, password, ...PDF_LOAD_OPTIONS })` in Worker.
-4. On success: fetch outline (`getOutline` → `getDestination`/`getPageIndex`), metadata (`getMetadata`), init tab state. On `PasswordException`, show modal; `onPassword` callback stored, never persisted.
-5. Render: **visible-page rendering with bounded prefetch (2 pages ahead)** via `IntersectionObserver` (continuous) or direct `pageNumber` (single/two-page). Incremental loading where engine supports (streaming via `disableStream: false`).
+1. File picker / drag-drop → `FormData` → `POST /api/open` (200 MB guard, like Sumatra's `FileDataCache` size check).
+2. `fitz.open(stream=data)` → MuPDF `pdf_open_document` with password callback (in-memory, never stored).
+3. ToC via `doc.get_toc()` (Sumatra's `TocTree`), metadata via `doc.metadata`, signature heuristic.
+4. Store in `DOCS[doc_id]` (SHA-256 of bytes)  -  independent session, crash isolates per doc_id (Sumatra's `WindowInfo` per tab).
 
-### Rendering
+### Render (Sumatra's visible-page + prefetch)
 
-- **DPR-aware**: canvas size = viewport × `devicePixelRatio`; CSS size = viewport; transform scaled for high-DPI.
-- **Cancellable**: `renderTask.cancel()` on dependency change/unmount.
-- **Bounded cache**: No global page cache beyond React state; each `PdfPage` manages its own canvas; offscreen pages unmount in single/two-page.
-- **Off UI thread**: All `getPage` / `render` / `getTextContent` run in Worker; UI thread only composites canvas + text-layer spans.
+- `GET /api/page/<id>/<pnum>?zoom&dpr&rotation` → `page.get_pixmap(matrix=Matrix(zoom*dpr).prerotate(rot), alpha=False)`  -  MuPDF C does `fz_run_page` → `fz_new_pixmap` → `draw-blend.S` SSE2.
+- Frontend uses `<img loading=lazy>` with IntersectionObserver (visible-page + 2 prefetch, like Sumatra's `DisplayModel`).
+- High-DPI via `Matrix(dpr)`, not CSS upscale.
 
-### Search
+### Search (Sumatra's TextSearch.cpp → VelocePDF C++ BMH)
 
-- Sequential `getPage` → `getTextContent` scan; early abort via `AbortController` stored in `window.__veloceSearchAbort`.
-- Bounded to 500 matches; 200 shown initially; highlight via text-layer span background (active orange, inactive yellow).
-- Result count, navigation (next/prev), cancellation (Esc or Clear), incremental UI update.
+- Frontend `POST /api/search {id, query}` → iterate pages via `page.get_text("text")` (Sumatra's `fz_stext`).
+- Hot path: `veloce_search.find_all(text, query)` (C++ BMH, `O(n/m)` avg, bounded 500). Fallback Python BMH if extension not built.
+- Highlight via overlay (Sumatra's yellow `RGB(0xFF,0xEB,0x3B)` + active orange).
 
-### Annotations
+---
 
-- Overlay `annot-layer` (absolute, `mix-blend-mode: multiply`) per page; create via drag on background (not on text spans, to preserve selection).
-- In-memory `Annotation[]` per tab; undo/redo stacks (shallow copies of arrays) — bounded by browser memory; safe for modest annotation counts.
-- Save: `pdf-lib` loads original bytes, embeds each `highlight` as low-level `Highlight` annot (Rect, QuadPoints, C, Contents) via `PDFDocument.context.obj` — produces standard PDF annotations readable in Acrobat/Preview/Foxit. Other kinds (underline/strikeout/note/ink) are overlay-only in 0.1.x; form filling via pdf-lib where AcroForm supported.
-- Save As uses blob download (atomic in browser: write-temp then rename semantics via File System Access API when available; Tauri uses `fs.writeFile` temp + rename). Original preserved unless user explicitly overwrites.
+## Security Boundaries
 
-### Page Operations
+- MuPDF never executes JS (Sumatra disables it too); we never call `doc.embeds` auto-open or `doc.xref` launch.
+- No auto-fetch: MuPDF `fz_open_document` does not fetch remote images; Flask has no `fetch` in render path.
+- Links: `is_allowed_url` allowlist `http/https/mailto` + confirm dialog (frontend).
+- Filenames: `sanitize_filename` strips `../`, control chars, reserved names (Sumatra's `path::GetBaseName` + extra).
+- Temp: Flask holds bytes in memory, not temp files; native CLI uses `0600` temp + `atexit` cleanup.
 
-- Extract/reorder/rotate/delete via `pdf-lib` (copyPages, setRotation, removePage); operations are functional (new bytes, not mutation of original until save).
+---
 
-## Security Boundaries (Implemented)
+## Platform Gaps
 
-- PDF.js configured with `isEvalSupported: false`, `enableXfa: false`; no `eval`, no JS execution.
-- No `launch` actions: we never call `pdfDoc.getJavaScript()` or handle `OpenAction` launch; outline `url` passed only after `isAllowedUrl` check.
-- Network: CSP `default-src 'self'` (Tauri) + no `fetch` in worker path; links require confirmation; attachments never auto-opened.
-- Filesystem: Worker has no fs; main thread only reads user-selected Files; Tauri fs scope limited to selected file + temp dir.
+- **Assembly**: SSE2 path x64 only; ARM64 uses NEON in real MuPDF (we include `.S` for x64 and note NEON gap).
+- **Atomic save**: Flask `send_file` blob download is new-file semantics, not POSIX `rename` atomic; native `pdfinfo` docs atomic via `fwrite` + `rename`.
+- **Signatures**: Heuristic (`producer` contains "sig") may miss certs; warn conservatively, like Sumatra.
 
-## Platform Gaps Documented
-
-- **Sandbox strength**: On Linux WebKitGTK, Worker sandbox is V8/WebKit process isolation, not OS user-ns; stricter sandbox available via Flatpak portal (not enforced in 0.1.x, planned).
-- **Atomic replace**: POSIX `rename` atomicity guaranteed on same filesystem; browser download fallback is “create new file”, not true atomic overwrite — documented as safe-write behavior.
-- **Signing**: Detection heuristic (producer string + `getMetadata` sig hint) may miss some signatures; we warn conservatively.
-
-## Performance Targets
-
-See [BENCHMARKS.md](BENCHMARKS.md) for reproducible methodology and measured results on reference machine.
-
-## Versioning and Support
-
-- Windows 10 22H2+ / Windows 11 22H2+, x64 and arm64
-- macOS 13+ (Ventura) Intel and Apple Silicon, notarization required for distribution (document signing steps; CI produces unsigned artifacts until maintainers configure credentials)
-- Linux: Ubuntu 22.04+ / Fedora 38+, x64 and aarch64 (AppImage + .deb)
-
-CI verifies builds on all three OSes; install tests run on each.
