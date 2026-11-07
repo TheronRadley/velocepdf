@@ -1,0 +1,21 @@
+[package]
+name = "velocepdf"
+version = "0.1.0"
+description = "Fast, private PDF reader"
+authors = ["VelocePDF Contributors"]
+license = "MIT"
+repository = "https://github.com/TheronRadley/velocepdf"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "1.5", features = [] }
+
+[dependencies]
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+tauri = { version = "1.6", features = ["dialog-open", "dialog-save", "fs-readFile", "fs-writeFile", "shell-open", "path-all"] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

@@ -1,0 +1,48 @@
+{
+  "name": "velocepdf",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A fast, lightweight, open-source PDF reader for Windows, macOS, and Linux.",
+  "license": "MIT",
+  "author": "VelocePDF Contributors",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TheronRadley/velocepdf.git"
+  },
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "tsc && vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 5173",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts,.tsx",
+    "format": "prettier --check \"src/**/*.{ts,tsx,css}\"",
+    "format:write": "prettier --write \"src/**/*.{ts,tsx,css}\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.3.0",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^5.4.449",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.3.0",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "@vitejs/plugin-react": "^4.3.3",
+    "eslint": "^9.11.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "jsdom": "^25.0.1",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3",
+    "vite": "^6.3.5",
+    "vitest": "^2.1.3"
+  }
+}

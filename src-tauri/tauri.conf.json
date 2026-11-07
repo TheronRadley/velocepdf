@@ -1,0 +1,39 @@
+{
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devPath": "http://localhost:5173",
+    "distDir": "../dist"
+  },
+  "package": {
+    "productName": "VelocePDF",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "allowlist": {
+      "all": false,
+      "shell": { "open": true },
+      "dialog": { "open": true, "save": true },
+      "fs": { "readFile": true, "writeFile": true, "scope": ["**"] },
+      "path": { "all": true }
+    },
+    "bundle": {
+      "active": true,
+      "category": "Utility",
+      "copyright": "MIT",
+      "deb": { "depends": [] },
+      "externalBin": [],
+      "icon": ["icons/icon.png"],
+      "identifier": "com.velocepdf.app",
+      "longDescription": "Fast, private PDF reader",
+      "macOS": { "entitlements": null, "exceptionDomain": "", "signingIdentity": null },
+      "resources": [],
+      "shortDescription": "Fast PDF reader",
+      "targets": "all",
+      "windows": { "certificateThumbprint": null, "digestAlgorithm": "sha256", "wix": null }
+    },
+    "security": { "csp": null },
+    "updater": { "active": false },
+    "windows": [{ "fullscreen": false, "height": 800, "resizable": true, "title": "VelocePDF", "width": 1100 }]
+  }
+}
