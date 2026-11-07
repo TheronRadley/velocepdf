@@ -33,6 +33,7 @@ app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB bomb guard
 
 # In-memory doc store (per-process, like Sumatra's FileDataCache)
 DOCS = {}  # id -> {doc: fitz.Document, name: str, data: bytes}
+IDEM_CACHE = {}  # idempotency-key -> (response, timestamp)
 
 ALLOWED_SCHEMES = {"http", "https", "mailto"}
 
@@ -62,6 +63,15 @@ def index():
 
 @app.route("/api/open", methods=["POST"])
 def api_open():
+    # Idempotency: X-Idempotency-Key prevents double-create on retry/double-click
+    idem = request.headers.get("X-Idempotency-Key")
+    if idem and idem in IDEM_CACHE:
+        # expire after 60s
+        resp, ts = IDEM_CACHE[idem]
+        if time.time() - ts < 60:
+            return jsonify(resp)
+        else:
+            del IDEM_CACHE[idem]
     if "file" not in request.files:
         return jsonify({"error": "No file"}), 400
     f = request.files["file"]
@@ -112,7 +122,10 @@ def api_open():
     if has_sig:
         info["hasSignatures"] = True
 
-    return jsonify({"id": doc_id, "name": name, "outline": outline, "metadata": info})
+    payload = {"id": doc_id, "name": name, "outline": outline, "metadata": info}
+    if idem:
+        IDEM_CACHE[idem] = (payload, time.time())
+    return jsonify(payload)
 
 @app.route("/api/page/<doc_id>/<int:pnum>")
 def api_page(doc_id, pnum):

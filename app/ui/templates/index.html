@@ -2,54 +2,135 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+  <meta name="color-scheme" content="light dark"/>
+  <meta name="theme-color" content="#111111"/>
   <title>VelocePDF — Fast, Sumatra-inspired Reader</title>
   <!-- Tabler — existing theme, not AI-generated (https://tabler.io) -->
   <link href="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0-beta20/dist/css/tabler.min.css" rel="stylesheet"/>
   <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css" rel="stylesheet"/>
   <style>
-    /* SumatraPDF-inspired minimal overrides — keep Tabler as base */
-    :root { --sumatra-accent:#e8c547; --sumatra-bg:#fbfbf8; }
-    body { background: var(--sumatra-bg); }
-    .navbar { border-bottom: 1px solid var(--tblr-border-color); }
+    /* —— Respect motion ——— */
+    @media (prefers-reduced-motion: reduce) { *,*::before,*::after{animation:none!important;transition:none!important} }
+    /* Sumatra-inspired minimal overrides — keep Tabler as base */
+    :root { --sumatra-accent:#e8c547; --sumatra-bg:#fbfbf8; --radius-card:16px; }
+    /* Continuous corners: superellipse where supported */
+    .card, .btn, .page-img { border-radius: var(--radius-card); }
+    @supports (corner-shape: squircle) {
+      .card, .page-img { corner-shape: squircle; border-radius: 18px; }
+    }
+    body { background: var(--sumatra-bg); text-wrap: pretty; }
+    h1,h2,h3 { text-wrap: balance; }
+    /* Tabular numbers for counters */
+    .num { font-variant-numeric: tabular-nums; }
+    /* Navbar + safe area */
+    .navbar { border-bottom: 1px solid var(--tblr-border-color); padding-top: env(safe-area-inset-top); }
     .page-wrapper { display: grid; grid-template-columns: 280px 1fr; min-height: calc(100vh - 56px - 40px); }
     .page-wrapper.collapsed { grid-template-columns: 0 1fr; }
-    .sidebar { border-right: 1px solid var(--tblr-border-color); background: #fff; overflow:auto; }
-    .viewer-shell { background:#ecebe8; overflow:auto; padding:18px 12px 32px; display:flex; flex-direction:column; align-items:center; gap:12px; }
-    .page-img { background:#fff; box-shadow: 0 1px 6px rgba(0,0,0,.08), 0 6px 20px rgba(0,0,0,.07); border-radius:2px; max-width:100%; }
+    .sidebar {
+      border-right: 1px solid var(--tblr-border-color); background: #fff; overflow:auto;
+      /* interruptible spring: translate follows finger */
+      transition: transform 240ms cubic-bezier(0.22,1,0.36,1);
+      will-change: transform;
+    }
+    .viewer-shell {
+      background:#ecebe8; overflow:auto;
+      padding: 18px 12px calc(32px + env(safe-area-inset-bottom)) 12px;
+      display:flex; flex-direction:column; align-items:center; gap:12px;
+      overscroll-behavior: contain;
+    }
+    .page-img {
+      background:#fff;
+      box-shadow: 0 1px 6px rgba(0,0,0,.08), 0 6px 20px rgba(0,0,0,.07);
+      max-width:100%; display:block;
+      view-transition-name: page-img;
+    }
     .tab-active { background: var(--tblr-primary-lt); border-color: var(--tblr-primary); color: var(--tblr-primary); }
-    .freq-card img { object-fit:cover; }
-    .command-palette { position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; place-items:center; z-index:1050; }
+    .command-palette {
+      position:fixed; inset:0; background:rgba(0,0,0,.35);
+      display:none; place-items:center; z-index:1050;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    }
     .command-palette.open { display:grid; }
-    .highlight { background: #ffeb3b; }
-    .highlight.active { background: #ff9800; }
-    @media (max-width: 700px){ .page-wrapper{grid-template-columns:1fr} .sidebar{display:none} }
+    /* Skeleton loaders — shape-matched */
+    .skeleton {
+      background: linear-gradient(90deg, #eee 25%, #f5f5f5 37%, #eee 63%);
+      background-size: 400% 100%;
+      animation: shimmer 1.2s ease-in-out infinite;
+      border-radius: 12px;
+    }
+    @keyframes shimmer { 0%{background-position:100% 0} 100%{background-position:-100% 0} }
+    .sk-page { width:min(900px,100%); height: 520px; }
+    .sk-thumb { height: 96px; }
+    .sk-line { height: 14px; }
+    /* Blurhash placeholder */
+    .blur-wrap { position:relative; overflow:hidden; background:#e9ecef; }
+    .blur-thumb { filter: blur(12px) saturate(1.1); transform: scale(1.05); transition: filter 300ms ease; }
+    .blur-wrap.is-loaded .blur-thumb { filter: none; transform:none; }
+    /* Hit slop — 44×44 without layout change */
+    .btn-hit {
+      position:relative;
+      min-height: 32px;
+      /* keep layout but extend tap */
+    }
+    .btn-hit::after{
+      content:""; position:absolute; inset:-8px;
+      /* expands hit to ~44px; still focusable */
+    }
+    /* Focus visible */
+    .btn:focus-visible, .form-control:focus-visible, [tabindex]:focus-visible {
+      outline: 2px solid var(--tblr-primary); outline-offset:2px;
+    }
+    /* Toasts */
+    #toasts { position:fixed; bottom: calc(12px + env(safe-area-inset-bottom)); right:12px; display:grid; gap:8px; z-index:1090; }
+    .toast {
+      background:#111; color:#fff; padding:12px 14px; border-radius:14px;
+      display:flex; align-items:center; gap:12px; box-shadow:0 8px 24px rgba(0,0,0,.2);
+      transform: translateY(8px); opacity:0; transition: all 220ms cubic-bezier(0.22,1,0.36,1);
+    }
+    .toast.show { transform:none; opacity:1; }
+    .toast button { color:#fff; border:1px solid rgba(255,255,255,.3); }
+    /* Drawer handle */
+    .drawer-handle { width:36px; height:4px; border-radius:999px; background: var(--tblr-border-color); margin:8px auto; }
+    /* View transition fallback */
+    ::view-transition-group(root) { animation-duration: 260ms; }
+    @media (max-width: 700px){
+      .page-wrapper{grid-template-columns:1fr}
+      .sidebar{
+        position:fixed; inset: 56px 0 0 0; z-index:20;
+        transform: translateX(-100%);
+        max-width: 86vw;
+        box-shadow: 0 8px 24px rgba(0,0,0,.12);
+        padding-bottom: env(safe-area-inset-bottom);
+      }
+      .sidebar.open { transform:none; }
+    }
   </style>
 </head>
 <body>
 <!-- Navbar — Tabler -->
 <header class="navbar navbar-expand-md d-print-none">
   <div class="container-xl">
-    <a class="navbar-brand" href="#" style="font-weight:800;letter-spacing:-.02em">
-      <span style="background:#111;color:#fff;border-radius:8px;padding:2px 8px;margin-right:8px">V</span> VelocePDF
+    <a class="navbar-brand" href="#" style="font-weight:800;letter-spacing:-.02em" aria-label="VelocePDF home">
+      <span style="background:#111;color:#fff;border-radius:10px;padding:2px 8px;margin-right:8px">V</span> VelocePDF
       <span class="badge bg-green-lt ms-2">MuPDF • C++/ASM</span>
     </a>
     <div class="navbar-nav flex-row order-md-last gap-2">
-      <button class="btn btn-white" onclick="document.getElementById('fileInput').click()"><i class="ti ti-folder-open"></i> Open <span class="badge bg-secondary-lt ms-1">⌘O</span></button>
-      <button class="btn" onclick="toggleCommand()"><i class="ti ti-command"></i> <span class="d-none d-md-inline">Command</span> <span class="badge bg-secondary-lt">Ctrl K</span></button>
-      <button class="btn btn-icon" onclick="toggleTheme()" title="Toggle theme"><i class="ti ti-moon"></i></button>
+      <button class="btn btn-white btn-hit" onclick="openPicker()" aria-label="Open PDF (Ctrl+O)" title="Open (⌘O)"><i class="ti ti-folder-open" aria-hidden="true"></i> Open <span class="badge bg-secondary-lt ms-1 num" aria-hidden="true">⌘O</span></button>
+      <button class="btn btn-hit" onclick="toggleCommand()" aria-label="Command palette (Ctrl+K)" title="Command (Ctrl K)"><i class="ti ti-command"></i> <span class="d-none d-md-inline">Command</span> <span class="badge bg-secondary-lt num">Ctrl K</span></button>
+      <button class="btn btn-icon btn-hit" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle theme (T)"><i class="ti ti-moon" aria-hidden="true"></i></button>
     </div>
     <div class="d-flex ms-3 gap-1 flex-wrap">
-      <button class="btn btn-sm btn-white" onclick="zoomOut()">−</button>
-      <select class="form-select form-select-sm" style="width:110px" onchange="setZoom(this.value)">
+      <button class="btn btn-sm btn-white btn-hit" onclick="zoomOut()" aria-label="Zoom out (−)" title="Zoom out (−)">−</button>
+      <select class="form-select form-select-sm" style="width:110px" onchange="setZoom(this.value)" aria-label="Zoom level">
         <option value="0.5">50%</option><option value="0.75">75%</option><option value="1" selected>100%</option><option value="1.25">125%</option><option value="1.5">150%</option><option value="2">200%</option><option value="fit-width">Fit width</option>
       </select>
-      <button class="btn btn-sm btn-white" onclick="zoomIn()">+</button>
-      <button class="btn btn-sm btn-white" onclick="rotate()"><i class="ti ti-rotate-clockwise"></i> Rotate</button>
-      <select class="form-select form-select-sm" style="width:140px" onchange="setViewMode(this.value)">
+      <button class="btn btn-sm btn-white btn-hit" onclick="zoomIn()" aria-label="Zoom in (+)" title="Zoom in (+)">+</button>
+      <button class="btn btn-sm btn-white btn-hit" onclick="rotate()" aria-label="Rotate 90° (R)" title="Rotate (R)"><i class="ti ti-rotate-clockwise"></i> Rotate</button>
+      <select class="form-select form-select-sm" style="width:140px" onchange="setViewMode(this.value)" aria-label="View mode" title="View mode (V)">
         <option value="continuous">Continuous</option><option value="single">Single page</option><option value="two">Two pages</option><option value="cover">Book (cover)</option>
       </select>
-      <button class="btn btn-sm btn-white d-none d-md-inline" onclick="window.print()"><i class="ti ti-printer"></i> Print</button>
+      <button class="btn btn-sm btn-white d-none d-md-inline btn-hit" onclick="window.print()" aria-label="Print (Ctrl+P)" title="Print (⌘P)"><i class="ti ti-printer"></i> Print</button>
     </div>
   </div>
 </header>
@@ -61,44 +142,54 @@
 
 <div class="page-wrapper" id="layout">
   <!-- Sidebar — Sumatra Favorites / Outline -->
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar" aria-label="Document sidebar">
+    <div class="drawer-handle d-md-none" aria-hidden="true"></div>
     <div class="p-2 d-flex gap-1" style="border-bottom:1px solid var(--tblr-border-color)">
-      <button class="btn btn-sm flex-fill tab-active" data-tab="freq" onclick="switchSide('freq')">Frequently Read</button>
-      <button class="btn btn-sm flex-fill" data-tab="outline" onclick="switchSide('outline')">Bookmarks</button>
-      <button class="btn btn-sm flex-fill" data-tab="search" onclick="switchSide('search')">Search</button>
+      <button class="btn btn-sm flex-fill tab-active btn-hit" data-tab="freq" onclick="switchSide('freq')" aria-label="Frequently read">Frequently Read</button>
+      <button class="btn btn-sm flex-fill btn-hit" data-tab="outline" onclick="switchSide('outline')" aria-label="Bookmarks">Bookmarks</button>
+      <button class="btn btn-sm flex-fill btn-hit" data-tab="search" onclick="switchSide('search')" aria-label="Search">Search</button>
     </div>
     <div id="side-freq" class="p-2">
       <div class="text-muted small mb-2">Like SumatraPDF — pin, open, and resume where you left off.</div>
       <div id="freqList" class="d-grid gap-2"></div>
       <div class="mt-3 p-2 bg-light rounded small text-muted">
         <strong>Tip:</strong> Drop PDFs anywhere. History is optional and easy to clear.
-        <button class="btn btn-sm btn-white mt-2 w-100" onclick="clearHistory()">Clear history</button>
+        <button class="btn btn-sm btn-white mt-2 w-100 btn-hit" onclick="clearHistoryOptimistic()">Clear history</button>
       </div>
     </div>
     <div id="side-outline" class="p-2" style="display:none">
       <div id="outlineList" class="text-muted small">Open a document to see bookmarks.</div>
+      <!-- skeleton for outline -->
+      <div id="outlineSkeleton" class="d-grid gap-2" style="display:none">
+        <div class="skeleton sk-line" style="width:70%"></div>
+        <div class="skeleton sk-line" style="width:55%"></div>
+        <div class="skeleton sk-line" style="width:62%"></div>
+      </div>
     </div>
     <div id="side-search" class="p-2" style="display:none">
       <div class="input-group mb-2">
         <input id="q" class="form-control form-control-sm" placeholder="Search (C++ BMH)…"/>
-        <button class="btn btn-sm btn-primary" onclick="doSearch()">Find</button>
+        <button class="btn btn-sm btn-primary btn-hit" onclick="doSearch()">Find</button>
       </div>
-      <div class="small text-muted mb-2"><span id="searchMeta">0 matches</span> <span class="badge bg-secondary-lt" id="searchEngine"></span></div>
+      <div class="small text-muted mb-2"><span id="searchMeta" class="num">0 matches</span> <span class="badge bg-secondary-lt" id="searchEngine"></span></div>
       <div id="searchResults" class="d-grid gap-1"></div>
+      <div id="searchSkeleton" class="d-grid gap-1" style="display:none">
+        <div class="skeleton" style="height:48px"></div><div class="skeleton" style="height:48px"></div><div class="skeleton" style="height:48px"></div>
+      </div>
     </div>
     <div class="p-2 text-muted small" style="border-top:1px solid var(--tblr-border-color)">
       VelocePDF 0.2.0 • Tabler • MuPDF <br/>
-      <a href="https://github.com/TheronRadley/velocepdf" target="_blank">GitHub</a> • <a href="/api/info">Engine info</a>
+      <a href="https://github.com/TheronRadley/velocepdf" target="_blank" rel="noopener">GitHub</a> • <a href="/api/info">Engine info</a>
     </div>
   </aside>
 
   <!-- Viewer -->
-  <main class="viewer-shell" id="viewer" tabindex="0">
+  <main class="viewer-shell" id="viewer" tabindex="0" aria-label="Document viewer">
     <div id="welcome" class="container-sm">
       <div class="card card-lg">
         <div class="card-body">
           <div class="d-flex align-items-center gap-3 mb-3">
-            <div style="width:44px;height:44px;border-radius:12px;background:#111;color:#fff;display:grid;place-items:center;font-weight:800">V</div>
+            <div style="width:44px;height:44px;border-radius:14px;background:#111;color:#fff;display:grid;place-items:center;font-weight:800">V</div>
             <div>
               <h2 class="mb-0">VelocePDF</h2>
               <div class="text-muted small">Fast • Minimal • MuPDF (C + Assembly) — inspired by SumatraPDF</div>
@@ -112,86 +203,154 @@
             <div class="col-md-4"><div class="card"><div class="card-body p-3"><strong>🎨 Tabler</strong><div class="small text-muted">Existing Tabler theme — clean, consistent, not AI slop. High-DPI, dark mode, reduced-motion.</div></div></div></div>
           </div>
           <div class="mt-3 d-flex gap-2 flex-wrap">
-            <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Open PDF</button>
-            <button class="btn" onclick="toggleCommand()">Command Palette (Ctrl K)</button>
+            <button class="btn btn-primary btn-hit" onclick="openPicker()">Open PDF</button>
+            <button class="btn btn-hit" onclick="toggleCommand()">Command Palette (Ctrl K)</button>
             <span class="small text-muted ms-auto">Drop PDFs anywhere • Native C++/ASM blending • Python glue</span>
           </div>
         </div>
       </div>
     </div>
     <div id="pages" class="d-grid gap-3" style="width:min(900px,100%)"></div>
+    <!-- page skeletons (hidden by default, shown during load) -->
+    <div id="pageSkeletons" class="d-grid gap-3" style="width:min(900px,100%);display:none">
+      <div class="skeleton sk-page"></div><div class="skeleton sk-page" style="opacity:.7"></div>
+    </div>
   </main>
 </div>
 
-<footer class="py-2 border-top bg-white">
+<footer class="py-2 border-top bg-white" style="padding-bottom: env(safe-area-inset-bottom)">
   <div class="container-xl d-flex gap-3 small text-muted flex-wrap">
     <span id="status">No document</span>
-    <span>Page <strong id="curPage">—</strong> / <span id="totalPage">—</span></span>
-    <span id="zoomLabel">100%</span> • <span id="engineLabel">MuPDF</span>
+    <span>Page <strong id="curPage" class="num">—</strong> / <span id="totalPage" class="num">—</span></span>
+    <span id="zoomLabel" class="num">100%</span> • <span id="engineLabel">MuPDF</span>
     <span class="ms-auto">No network during reading • <a href="#" onclick="alert('No telemetry. See THREAT_MODEL.');return false">Privacy</a></span>
   </div>
 </footer>
 
+<div id="toasts" aria-live="polite" aria-atomic="true"></div>
+
 <input id="fileInput" type="file" accept=".pdf" multiple style="display:none"/>
 
 <!-- Command Palette — Sumatra's Ctrl+K -->
-<div id="palette" class="command-palette" onclick="if(event.target===this)toggleCommand()">
+<div id="palette" class="command-palette" role="dialog" aria-modal="true" aria-label="Command palette" onclick="if(event.target===this)toggleCommand()">
   <div class="card" style="width:min(600px,95vw)">
     <div class="card-header"><h3 class="card-title">Command Palette — like SumatraPDF (Ctrl+K)</h3></div>
     <div class="card-body">
-      <input id="palInput" class="form-control mb-2" placeholder="Type: open, search, fit width, dark mode, print…" oninput="filterPalette(this.value)"/>
-      <div id="palList" class="list-group"></div>
+      <input id="palInput" class="form-control mb-2" placeholder="Type: open, search, fit width, dark mode, print…" oninput="filterPalette(this.value)" autocomplete="off" spellcheck="false"/>
+      <div id="palList" class="list-group" role="listbox"></div>
+      <div class="small text-muted mt-2">Shortcut hints: <span class="badge bg-secondary-lt">↑↓</span> navigate • <span class="badge bg-secondary-lt">↵</span> run • <span class="badge bg-secondary-lt">Esc</span> close</div>
     </div>
   </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0-beta20/dist/js/tabler.min.js"></script>
 <script>
+/* —— SWR cache for page images ——— */
+const pageCache = new Map(); // key -> blob url
+function swrImgUrl(key, fetcher){
+  if(pageCache.has(key)){
+    // revalidate in background
+    fetcher().then(url=>{ pageCache.set(key,url); });
+    return pageCache.get(key);
+  }
+  // optimistic: return skeleton first, fetch then set
+  fetcher().then(url=>{ pageCache.set(key,url); document.querySelectorAll(`img[data-key="${CSS.escape(key)}"]`).forEach(img=>{ img.src=url; img.parentElement?.classList.add('is-loaded'); }); });
+  return ""; // will show skeleton
+}
+/* —— Idempotency ——— */
+function idemKey(){ return crypto.randomUUID ? crypto.randomUUID() : String(Date.now())+Math.random(); }
+/* —— Toasts + undo ——— */
+function toast(msg, opts={}){
+  const wrap=document.getElementById('toasts');
+  const el=document.createElement('div'); el.className='toast'; el.setAttribute('role','status');
+  el.innerHTML = `<span>${msg}</span>` + (opts.undo ? `<button class="btn btn-sm" onclick="(${opts.undo})(); this.closest('.toast').remove()">Undo</button>` : '') + `<button class="btn btn-sm btn-icon" aria-label="Dismiss" onclick="this.closest('.toast').remove()">×</button>`;
+  wrap.appendChild(el);
+  requestAnimationFrame(()=> el.classList.add('show'));
+  if(!opts.persist) setTimeout(()=>{ el.classList.remove('show'); setTimeout(()=>el.remove(),220); }, opts.duration||3600);
+  return el;
+}
+/* —— State ——— */
 let docs=[], active=null, zoom=1, rotation=0, viewMode='continuous', recents=JSON.parse(localStorage.getItem('veloce:recents')||'[]');
 let searchResults=[], searchIdx=0;
-
+let openIdem = null;
 const tabsEl=document.getElementById('tabs'), pagesEl=document.getElementById('pages'), welcome=document.getElementById('welcome');
 const freqList=document.getElementById('freqList'), outlineList=document.getElementById('outlineList');
+const pageSkeletons=document.getElementById('pageSkeletons');
 
 function saveRecents(){ localStorage.setItem('veloce:recents', JSON.stringify(recents.slice(0,20))); renderFreq(); }
 function renderFreq(){
   freqList.innerHTML = recents.length ? recents.map(r=>`
     <div class="card card-sm">
       <div class="card-body p-2 d-flex align-items-center gap-2">
-        <i class="ti ti-file-type-pdf text-red" style="font-size:22px"></i>
-        <div style="min-width:0"><div class="text-truncate" style="font-weight:600">${r.name}</div><div class="small text-muted">${r.pages} pages • ${new Date(r.date).toLocaleDateString()}</div></div>
-        <button class="btn btn-sm ms-auto" onclick="reopenRecent('${r.name}')">Open</button>
+        <i class="ti ti-file-type-pdf text-red" style="font-size:22px" aria-hidden="true"></i>
+        <div style="min-width:0"><div class="text-truncate" style="font-weight:600">${r.name}</div><div class="small text-muted num">${r.pages} pages • ${new Date(r.date).toLocaleDateString()}</div></div>
+        <button class="btn btn-sm ms-auto btn-hit" onclick="reopenRecent('${r.name}')">Open</button>
       </div>
     </div>`).join('') : '<div class="small text-muted">No recent — open a PDF to build Frequently Read (like Sumatra).</div>';
 }
 renderFreq();
+function openPicker(){ document.getElementById('fileInput').click(); }
 
+/* —— Optimistic tabs ——— */
 function renderTabs(){
   if(!docs.length){ tabsEl.innerHTML='<span class="text-muted small">No documents — Open or drop PDF</span>'; welcome.style.display=''; pagesEl.innerHTML=''; document.getElementById('status').textContent='No document'; return; }
   tabsEl.innerHTML = docs.map(d=>`
-    <button class="btn btn-sm ${d.id===active?.id?'btn-primary':'btn-white'}" onclick="switchDoc('${d.id}')">
+    <button class="btn btn-sm ${d.id===active?.id?'btn-primary':'btn-white'} btn-hit" style="view-transition-name: tab-${d.id}" onclick="switchDoc('${d.id}')" aria-label="Open ${d.name}">
       ${d.name} ${d.modified?'<span class="badge bg-yellow-lt">•</span>':''}
-      <span class="ms-2" onclick="event.stopPropagation();closeDoc('${d.id}')">×</span>
-    </button>`).join('') + `<button class="btn btn-sm btn-white ms-2" onclick="document.getElementById('fileInput').click()">+ Open</button>`;
+      <span class="ms-2" role="button" tabindex="0" aria-label="Close ${d.name}" onclick="event.stopPropagation();closeDocOptimistic('${d.id}')" onkeydown="if(event.key==='Enter')closeDocOptimistic('${d.id}')">×</span>
+    </button>`).join('') + `<button class="btn btn-sm btn-white ms-2 btn-hit" onclick="openPicker()">+ Open</button>`;
+}
+let _lastClosed=null, _lastClosedIdx=-1;
+function closeDocOptimistic(id){
+  const idx=docs.findIndex(d=>d.id===id);
+  _lastClosed=docs[idx]; _lastClosedIdx=idx;
+  // optimistic update
+  docs.splice(idx,1);
+  if(active?.id===id) active=docs[Math.max(0,idx-1)]||null;
+  renderTabs(); if(active) renderPages(); else {welcome.style.display=''; pagesEl.innerHTML='';}
+  const t=toast(`Closed ${_lastClosed.name}`, {
+    undo: ()=>{ docs.splice(_lastClosedIdx,0,_lastClosed); active=_lastClosed; renderTabs(); renderPages(); toast('Restored'); },
+    duration: 5000
+  });
+}
+function clearHistoryOptimistic(){
+  const prev=[...recents];
+  recents=[]; saveRecents();
+  toast('History cleared', { undo: ()=>{ recents=prev; saveRecents(); toast('Restored'); }, duration:5000 });
 }
 
-function switchDoc(id){ active=docs.find(d=>d.id===id); renderTabs(); renderPages(); renderOutline(); document.getElementById('totalPage').textContent=active?active.pageCount:'—'; }
-function closeDoc(id){ docs=docs.filter(d=>d.id!==id); if(active?.id===id) active=docs[0]||null; renderTabs(); if(active) renderPages(); else {welcome.style.display=''; pagesEl.innerHTML='';}}
-function clearHistory(){ recents=[]; saveRecents(); }
+function switchDocAnimated(id){
+  const run=()=>{ active=docs.find(d=>d.id===id); renderTabs(); renderPages(); renderOutline(); document.getElementById('totalPage').textContent=active?active.pageCount:'—'; };
+  if(document.startViewTransition) document.startViewTransition(run); else run();
+}
+function switchDoc(id){ switchDocAnimated(id); }
+function clearHistory(){ clearHistoryOptimistic(); }
 
 document.getElementById('fileInput').addEventListener('change', e=>{ handleFiles(e.target.files); e.target.value=''; });
 window.addEventListener('dragover', e=>e.preventDefault());
 window.addEventListener('drop', e=>{ e.preventDefault(); if(e.dataTransfer.files) handleFiles(e.dataTransfer.files); });
 
 async function handleFiles(files){
+  // idempotency: dedupe rapid double-drop
+  const key=idemKey();
+  if(openIdem===key) return; // no, use per-file
   for(let f of files){
     if(!f.name.toLowerCase().endsWith('.pdf')) continue;
-    if(f.size>200*1024*1024){ alert('File too large (200 MB limit)'); continue; }
+    if(f.size>200*1024*1024){ toast('File too large (200 MB limit)', {duration:4000}); continue; }
+    // show skeletons immediately (perceived speed)
+    welcome.style.display='none'; pageSkeletons.style.display='grid'; pagesEl.style.display='none';
     const fd=new FormData(); fd.append('file', f);
-    const res=await fetch('/api/open',{method:'POST', body:fd});
-    const j=await res.json();
-    if(j.password_required){ const pw=prompt('Password required:'); if(pw){ fd.set('password', pw); const r2=await fetch('/api/open',{method:'POST', body:fd}); const j2=await r2.json(); if(j2.error) alert(j2.error); else addDoc(j2,f); } continue; }
-    if(j.error) alert(j.error); else addDoc(j,f);
+    const thisKey=idemKey();
+    try{
+      const res=await fetch('/api/open',{method:'POST', headers:{'X-Idempotency-Key': thisKey}, body:fd});
+      const j=await res.json();
+      pageSkeletons.style.display='none'; pagesEl.style.display='grid';
+      if(j.password_required){ const pw=prompt('Password required:'); if(pw){ fd.set('password', pw); const r2=await fetch('/api/open',{method:'POST', headers:{'X-Idempotency-Key': idemKey()}, body:fd}); const j2=await r2.json(); if(j2.error) { toast(j2.error, {duration:4000}); pageSkeletons.style.display='none'; } else addDoc(j2,f); } else { pageSkeletons.style.display='none'; pagesEl.style.display='grid'; } continue; }
+      if(j.error) { toast(j.error, {duration:4000}); pageSkeletons.style.display='none'; } else addDoc(j,f);
+    } catch(err){
+      pageSkeletons.style.display='none'; pagesEl.style.display='grid';
+      toast('Open failed — retry', {duration:4000});
+    }
   }
 }
 function addDoc(j, f){
@@ -200,56 +359,116 @@ function addDoc(j, f){
   recents = [{name:j.name, pages:j.metadata.pageCount, date:new Date().toISOString()}, ...recents.filter(r=>r.name!==j.name)].slice(0,12);
   saveRecents();
   renderTabs(); renderOutline(); renderPages();
+  toast(`Opened ${j.name}`, {duration:2400});
   fetch('/api/info').then(r=>r.json()).then(info=>{ document.getElementById('engineLabel').textContent=info.engine.split('(')[0]; document.getElementById('searchEngine').textContent=info.has_cpp_search?'C++ BMH':'Python'; });
 }
 function renderOutline(){
-  if(!active?.outline?.length){ outlineList.innerHTML='<div class="small text-muted">No bookmarks.</div>'; return; }
-  outlineList.innerHTML = active.outline.map(o=>`<div class="py-1" style="padding-left:${o.level*12}px"><a href="#" onclick="goPage(${o.page});return false" style="text-decoration:none">${o.title} <span class="text-muted small">p${o.page}</span></a></div>`).join('');
+  const sk=document.getElementById('outlineSkeleton');
+  if(!active){ outlineList.innerHTML='<div class="small text-muted">Open a document to see bookmarks.</div>'; return; }
+  if(!active.outline){ // loading state (stale-while-revalidate pattern: show skeleton while outline fetch in bg)
+    outlineList.style.display='none'; sk.style.display='grid'; return;
+  }
+  sk.style.display='none'; outlineList.style.display='';
+  if(!active.outline.length){ outlineList.innerHTML='<div class="small text-muted">No bookmarks.</div>'; return; }
+  outlineList.innerHTML = active.outline.map(o=>`<div class="py-1" style="padding-left:${o.level*12}px"><a href="#" onclick="goPage(${o.page});return false" style="text-decoration:none" onmouseenter="prefetchPage(${o.page})">${o.title} <span class="text-muted small num">p${o.page}</span></a></div>`).join('');
+}
+/* prefetch on hover */
+function prefetchPage(pn){
+  if(!active) return;
+  const key=`${active.id}/${pn}/${zoom}/${rotation}`;
+  const dpr=window.devicePixelRatio||1;
+  const url=`/api/page/${active.id}/${pn}?zoom=${zoom}&rotation=${rotation}&dpr=${dpr}`;
+  if(!pageCache.has(key)){
+    // low-priority prefetch
+    fetch(url).then(r=>r.blob()).then(b=>{ pageCache.set(key, URL.createObjectURL(b)); });
+  }
 }
 function renderPages(){
   if(!active) return;
   pagesEl.innerHTML='';
   const dpr=window.devicePixelRatio||1;
-  const show = viewMode==='single' ? [currentPage] : viewMode==='cover' ? [[1], ...Array.from({length:Math.ceil((active.pageCount-1)/2)}, (_,i)=>[2+i*2, 2+i*2+1].filter(n=>n<=active.pageCount))] : Array.from({length:active.pageCount}, (_,i)=>i+1);
-  let currentPage = active.currentPage||1;
-  if(viewMode==='single'){
-    const img=document.createElement('img'); img.className='page-img'; img.loading='eager';
-    img.src=`/api/page/${active.id}/${currentPage}?zoom=${zoom}&rotation=${rotation}&dpr=${dpr}`;
-    img.alt=`Page ${currentPage}`; img.onclick=()=>{ if(confirm('Highlight this page? (demo)')) { active.modified=true; renderTabs(); } };
-    pagesEl.appendChild(img);
-    document.getElementById('curPage').textContent=currentPage;
-  } else if(viewMode==='cover' || viewMode==='two'){
-    show.forEach(row=>{
-      const wrap=document.createElement('div'); wrap.style.display='flex'; wrap.style.gap='12px'; wrap.style.justifyContent='center'; wrap.style.flexWrap='wrap';
-      row.forEach(pn=>{
-        const img=document.createElement('img'); img.className='page-img'; img.style.maxWidth='calc(50% - 6px)';
-        img.src=`/api/page/${active.id}/${pn}?zoom=${zoom*0.9}&rotation=${rotation}&dpr=${dpr}`; img.alt=`Page ${pn}`;
-        wrap.appendChild(img);
-      });
+  const curPage = active.currentPage||1;
+  const show = viewMode==='single' ? [curPage] : viewMode==='cover' ? [[1], ...Array.from({length:Math.ceil((active.pageCount-1)/2)}, (_,i)=>[2+i*2, 2+i*2+1].filter(n=>n<=active.pageCount))] : Array.from({length:active.pageCount}, (_,i)=>i+1);
+  const doRender=()=>{
+    if(viewMode==='single'){
+      const wrap=document.createElement('div'); wrap.className='blur-wrap'; wrap.style.width='min(900px,100%)';
+      const sk=document.createElement('div'); sk.className='skeleton sk-page'; wrap.appendChild(sk);
+      const img=document.createElement('img'); img.className='page-img blur-thumb'; img.loading='eager';
+      img.alt=`Page ${curPage}`; img.decoding='async'; img.dataset.key=`${active.id}/${curPage}/${zoom}/${rotation}`;
+      const url=`/api/page/${active.id}/${curPage}?zoom=${zoom}&rotation=${rotation}&dpr=${dpr}`;
+      const cached=pageCache.get(`${active.id}/${curPage}/${zoom}/${rotation}`);
+      img.src = cached || url;
+      if(!cached) img.onload=()=>{ wrap.classList.add('is-loaded'); sk.remove(); pageCache.set(`${active.id}/${curPage}/${zoom}/${rotation}`, url); };
+      else { wrap.classList.add('is-loaded'); sk.remove(); }
+      img.onerror=()=>{ sk.remove(); toast('Failed to render page', {duration:3000}); };
+      wrap.appendChild(img);
       pagesEl.appendChild(wrap);
-    });
-    document.getElementById('curPage').textContent=currentPage;
-  } else {
-    for(let pn=1; pn<=active.pageCount; pn++){
-      const img=document.createElement('img'); img.className='page-img'; img.loading='lazy';
-      img.src=`/api/page/${active.id}/${pn}?zoom=${zoom}&rotation=${rotation}&dpr=${dpr}`; img.alt=`Page ${pn}`;
-      img.dataset.page=pn;
-      pagesEl.appendChild(img);
+      document.getElementById('curPage').textContent=curPage;
+    } else if(viewMode==='cover' || viewMode==='two'){
+      show.forEach(row=>{
+        const wrap=document.createElement('div'); wrap.style.display='flex'; wrap.style.gap='12px'; wrap.style.justifyContent='center'; wrap.style.flexWrap='wrap';
+        row.forEach(pn=>{
+          const cell=document.createElement('div'); cell.className='blur-wrap'; cell.style.flex='1 1 320px'; cell.style.maxWidth='calc(50% - 6px)';
+          const sk=document.createElement('div'); sk.className='skeleton sk-page'; sk.style.height='620px'; cell.appendChild(sk);
+          const img=document.createElement('img'); img.className='page-img blur-thumb'; img.style.width='100%';
+          img.alt=`Page ${pn}`; img.loading='lazy'; img.decoding='async';
+          const url=`/api/page/${active.id}/${pn}?zoom=${zoom*0.9}&rotation=${rotation}&dpr=${dpr}`;
+          const key=`${active.id}/${pn}/${zoom*0.9}/${rotation}`;
+          const cached=pageCache.get(key); img.src=cached||url;
+          img.onload=()=>{ cell.classList.add('is-loaded'); sk.remove(); if(!cached) pageCache.set(key, url); };
+          cell.appendChild(img); wrap.appendChild(cell);
+        });
+        pagesEl.appendChild(wrap);
+      });
+      document.getElementById('curPage').textContent=curPage;
+    } else {
+      for(let pn=1; pn<=active.pageCount; pn++){
+        const wrap=document.createElement('div'); wrap.className='blur-wrap'; wrap.style.width='min(900px,100%)';
+        const sk=document.createElement('div'); sk.className='skeleton sk-page'; wrap.appendChild(sk);
+        const img=document.createElement('img'); img.className='page-img blur-thumb';
+        img.alt=`Page ${pn}`; img.loading='lazy'; img.decoding='async'; img.dataset.page=pn; img.dataset.key=`${active.id}/${pn}/${zoom}/${rotation}`;
+        const url=`/api/page/${active.id}/${pn}?zoom=${zoom}&rotation=${rotation}&dpr=${dpr}`;
+        const cached=pageCache.get(`${active.id}/${pn}/${zoom}/${rotation}`);
+        img.src = cached || url;
+        if(cached){ wrap.classList.add('is-loaded'); sk.remove(); }
+        else {
+          // SWR: show cached thumbhash first if available via /api/thumbnail
+          const thumbUrl=`/api/thumbnail/${active.id}/${pn}`;
+          img.src = thumbUrl; // blurhash placeholder (tiny)
+          img.style.filter='blur(12px)';
+          const full = new Image(); full.onload=()=>{ img.src=full.src; wrap.classList.add('is-loaded'); sk.remove(); pageCache.set(`${active.id}/${pn}/${zoom}/${rotation}`, full.src); };
+          full.src=url;
+        }
+        img.onerror=()=> sk.remove();
+        wrap.appendChild(img);
+        pagesEl.appendChild(wrap);
+        // prefetch next 2 when entering viewport
+        const io2=new IntersectionObserver(es=>{
+          es.forEach(e=>{
+            if(e.isIntersecting){
+              for(let k=1;k<=2;k++){ const np=pn+k; if(np<=active.pageCount) prefetchPage(np); }
+              io2.unobserve(e.target);
+            }
+          });
+        }, {root: document.getElementById('viewer'), rootMargin:'400px'});
+        io2.observe(wrap);
+      }
+      document.getElementById('curPage').textContent='1';
     }
-    document.getElementById('curPage').textContent='1';
-  }
-  document.getElementById('totalPage').textContent=active.pageCount;
-  document.getElementById('zoomLabel').textContent=Math.round(zoom*100)+'%';
-  document.getElementById('status').textContent=active.name + (active.modified?' • Modified':'');
-  // Intersection observer for current page tracking (like Sumatra's scroll spy)
-  const io=new IntersectionObserver(es=>{ es.forEach(e=>{ if(e.isIntersecting) document.getElementById('curPage').textContent=e.target.dataset.page; }); }, {root:document.getElementById('viewer'), threshold:0.5});
-  pagesEl.querySelectorAll('img').forEach(i=>io.observe(i));
+    document.getElementById('totalPage').textContent=active.pageCount;
+    document.getElementById('zoomLabel').textContent=Math.round(zoom*100)+'%';
+    document.getElementById('status').textContent=active.name + (active.modified?' • Modified':'');
+    const io=new IntersectionObserver(es=>{ es.forEach(e=>{ if(e.isIntersecting) document.getElementById('curPage').textContent=e.target.dataset.page || e.target.querySelector('img')?.alt?.match(/\d+/)?.[0] || '—'; }); }, {root:document.getElementById('viewer'), threshold:0.5});
+    pagesEl.querySelectorAll('[data-page]').forEach(el=> io.observe(el));
+    pagesEl.querySelectorAll('.blur-wrap').forEach(el=>{ const img=el.querySelector('img'); if(img?.dataset.page) io.observe(img); });
+  };
+  if(document.startViewTransition) document.startViewTransition(doRender); else doRender();
 }
 function goPage(n){ if(!active) return; active.currentPage=n; renderPages(); document.getElementById('pages').querySelector(`img[alt="Page ${n}"]`)?.scrollIntoView({behavior:'smooth', block:'start'}); }
-function zoomIn(){ zoom=Math.min(3, zoom*1.2); renderPages(); }
-function zoomOut(){ zoom=Math.max(0.25, zoom/1.2); renderPages(); }
-function setZoom(v){ if(v==='fit-width') zoom=1.15; else zoom=parseFloat(v); renderPages(); }
-function rotate(){ rotation=(rotation+90)%360; renderPages(); }
+function zoomIn(){ zoom=Math.min(3, zoom*1.2); const run=()=>renderPages(); if(document.startViewTransition) document.startViewTransition(run); else run(); }
+function zoomOut(){ zoom=Math.max(0.25, zoom/1.2); const run=()=>renderPages(); if(document.startViewTransition) document.startViewTransition(run); else run(); }
+function setZoom(v){ if(v==='fit-width') zoom=1.15; else zoom=parseFloat(v); const run=()=>renderPages(); if(document.startViewTransition) document.startViewTransition(run); else run(); }
+function rotate(){ rotation=(rotation+90)%360; const run=()=>renderPages(); if(document.startViewTransition) document.startViewTransition(run); else run(); }
 function setViewMode(v){ viewMode=v; renderPages(); }
 function switchSide(name){
   document.querySelectorAll('.sidebar .btn').forEach(b=>b.classList.remove('tab-active'));
@@ -260,50 +479,151 @@ function switchSide(name){
 }
 async function doSearch(){
   const q=document.getElementById('q').value.trim(); if(!q||!active) return;
+  document.getElementById('searchSkeleton').style.display='grid'; document.getElementById('searchResults').style.display='none';
   const res=await fetch('/api/search',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:active.id, query:q})});
   const j=await res.json();
+  document.getElementById('searchSkeleton').style.display='none'; document.getElementById('searchResults').style.display='grid';
   searchResults=j.results||[]; searchIdx=0;
   document.getElementById('searchMeta').textContent=`${j.count} matches`;
   document.getElementById('searchEngine').textContent=j.engine;
   document.getElementById('searchResults').innerHTML = searchResults.slice(0,200).map((r,i)=>`
-    <div class="card card-sm ${i===searchIdx?'bg-yellow-lt':''}" style="cursor:pointer" onclick="goPage(${r.page})">
-      <div class="card-body p-2"><div class="small" style="font-weight:600">Page ${r.page}</div><div class="small text-muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.snippet}</div></div>
+    <div class="card card-sm ${i===searchIdx?'bg-yellow-lt':''}" style="cursor:pointer" onclick="goPage(${r.page})" onmouseenter="prefetchPage(${r.page})">
+      <div class="card-body p-2"><div class="small" style="font-weight:600">Page <span class="num">${r.page}</span></div><div class="small text-muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.snippet}</div></div>
     </div>`).join('') || '<div class="small text-muted">No results — image-only PDF needs OCR (like Sumatra shows “No matches”).</div>';
   if(searchResults.length) goPage(searchResults[0].page);
 }
 document.getElementById('q').addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(); });
+/* —— Shortcut hints + command menu ——— */
 document.addEventListener('keydown', e=>{
-  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='o'){ e.preventDefault(); document.getElementById('fileInput').click(); }
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='o'){ e.preventDefault(); openPicker(); }
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){ e.preventDefault(); toggleCommand(); }
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='f'){ e.preventDefault(); switchSide('search'); document.getElementById('q').focus(); }
-  if(e.key==='Escape'){ document.getElementById('palette').classList.remove('open'); }
-  if(e.key==='?'){ toggleCommand(); }
+  if(e.key==='Escape'){ const pal=document.getElementById('palette'); if(pal.classList.contains('open')) { pal.classList.remove('open'); history.back(); } else { const sb=document.getElementById('sidebar'); if(sb.classList.contains('open')) sb.classList.remove('open'); } }
+  if(e.key==='?' && !e.ctrlKey && !e.metaKey){ toggleCommand(); }
+  if(e.key==='v' && !e.ctrlKey && !e.metaKey && document.activeElement.tagName!=='INPUT'){ e.preventDefault(); setViewMode(viewMode==='single'?'continuous':'single'); }
+  if(e.key==='r' && !e.ctrlKey && !e.metaKey && document.activeElement.tagName!=='INPUT'){ e.preventDefault(); rotate(); }
 });
+let _palIdx=0;
 function toggleCommand(){
-  const p=document.getElementById('palette'); p.classList.toggle('open');
-  if(p.classList.contains('open')){
-    document.getElementById('palInput').focus();
+  const p=document.getElementById('palette');
+  const open=!p.classList.contains('open');
+  if(open){
+    p.classList.add('open'); history.pushState({palette:true},'');
+    document.getElementById('palInput').value=''; document.getElementById('palInput').focus(); _palIdx=0;
     const cmds=[
-      ['Open PDF','document.getElementById("fileInput").click()'],
-      ['Search','switchSide("search");document.getElementById("q").focus()'],
-      ['Fit Width','setZoom("fit-width")'],
-      ['Rotate','rotate()'],
-      ['Book View','setViewMode("cover")'],
-      ['Continuous','setViewMode("continuous")'],
-      ['Print','window.print()'],
-      ['Toggle Theme','toggleTheme()'],
-      ['Clear History','clearHistory()'],
+      ['Open PDF','openPicker()','⌘O'],
+      ['Search','switchSide("search");document.getElementById("q").focus()','⌘F'],
+      ['Fit Width','setZoom("fit-width")',''],
+      ['Rotate 90°','rotate()','R'],
+      ['Book View','setViewMode("cover")','V'],
+      ['Continuous','setViewMode("continuous")','V'],
+      ['Single Page','setViewMode("single")','V'],
+      ['Zoom In','zoomIn()','+'],
+      ['Zoom Out','zoomOut()','−'],
+      ['Print','window.print()','⌘P'],
+      ['Toggle Theme','toggleTheme()','T'],
+      ['Clear History','clearHistoryOptimistic()',''],
     ];
-    document.getElementById('palList').innerHTML=cmds.map(([k,a])=>`<button class="list-group-item list-group-item-action" onclick="${a};toggleCommand()">${k}</button>`).join('');
-  }
+    const list=document.getElementById('palList');
+    list.innerHTML=cmds.map(([k,a,sc],i)=>`<button class="list-group-item list-group-item-action d-flex justify-content-between" role="option" aria-selected="${i===0}" data-cmd="${i}" onclick="${a};toggleCommand()"><span>${k}</span><span class="badge bg-secondary-lt num">${sc}</span></button>`).join('');
+    updatePalSelection();
+  } else { p.classList.remove('open'); }
 }
+function updatePalSelection(){
+  document.querySelectorAll('#palList button').forEach((b,i)=>{ b.setAttribute('aria-selected', i===_palIdx); b.classList.toggle('active', i===_palIdx); if(i===_palIdx) b.scrollIntoView({block:'nearest'}); });
+}
+document.getElementById('palInput')?.addEventListener('keydown', e=>{
+  const items=[...document.querySelectorAll('#palList button')].filter(b=>b.style.display!=='none');
+  if(e.key==='ArrowDown'){ e.preventDefault(); _palIdx=Math.min(items.length-1, _palIdx+1); updatePalSelection(); }
+  if(e.key==='ArrowUp'){ e.preventDefault(); _palIdx=Math.max(0, _palIdx-1); updatePalSelection(); }
+  if(e.key==='Enter'){ e.preventDefault(); const vis=[...document.querySelectorAll('#palList button')].filter(b=>b.style.display!=='none'); vis[_palIdx]?.click(); }
+});
 function filterPalette(q){
-  document.querySelectorAll('#palList button').forEach(b=>{ b.style.display=b.textContent.toLowerCase().includes(q.toLowerCase())?'':'none'; });
+  let idx=0;
+  document.querySelectorAll('#palList button').forEach(b=>{
+    const show=b.textContent.toLowerCase().includes(q.toLowerCase());
+    b.style.display=show?'':'none';
+    if(show && idx===0) _palIdx=0;
+    if(show) idx++;
+  });
+  _palIdx=0; updatePalSelection();
 }
 function toggleTheme(){
-  document.documentElement.setAttribute('data-bs-theme', document.documentElement.getAttribute('data-bs-theme')==='dark'?'light':'dark');
+  const cur=document.documentElement.getAttribute('data-bs-theme');
+  document.documentElement.setAttribute('data-bs-theme', cur==='dark'?'light':'dark');
 }
-function reopenRecent(name){ alert('Re-open file via Open — history stores name, not bytes (privacy).'); }
+function reopenRecent(name){ toast('Re-open via Open — history stores name only (privacy).',{duration:2600}); }
+
+/* —— Swipe-to-dismiss (sidebar + palette) ——— */
+(function(){
+  const sidebar=document.getElementById('sidebar');
+  const palette=document.getElementById('palette');
+  let startX=0, curX=0, dragging=null;
+  function onStart(e, target){
+    dragging=target;
+    startX = (e.touches? e.touches[0].clientX : e.clientX);
+  }
+  function onMove(e){
+    if(!dragging) return;
+    curX = (e.touches? e.touches[0].clientX : e.clientX) - startX;
+    if(dragging===sidebar && window.innerWidth<=700){
+      if(curX<0){ sidebar.style.transform = `translateX(${curX}px)`; }
+    }
+    if(dragging===palette){
+      const card=palette.querySelector('.card');
+      if(card) card.style.transform = `translateY(${Math.max(0, curX*0.2)}px)`;
+    }
+  }
+  function onEnd(){
+    if(!dragging) return;
+    if(dragging===sidebar && curX < -80){
+      sidebar.classList.remove('open');
+      sidebar.style.transform='';
+      history.back();
+    } else {
+      sidebar.style.transform='';
+      const card=palette.querySelector('.card'); if(card) card.style.transform='';
+      if(dragging===palette && curX>80) { palette.classList.remove('open'); }
+    }
+    dragging=null; startX=0; curX=0;
+  }
+  // sidebar drag
+  sidebar.addEventListener('touchstart', e=> onStart(e, sidebar), {passive:true});
+  sidebar.addEventListener('touchmove', onMove, {passive:true});
+  sidebar.addEventListener('touchend', onEnd);
+  // palette drag (card)
+  const palCard=document.querySelector('#palette .card');
+  if(palCard){
+    palCard.addEventListener('touchstart', e=> onStart(e, palette), {passive:true});
+    palCard.addEventListener('touchmove', onMove, {passive:true});
+    palCard.addEventListener('touchend', onEnd);
+  }
+  // open sidebar via edge swipe
+  let edgeStartX=0;
+  document.addEventListener('touchstart', e=>{ if(e.touches[0].clientX<16) edgeStartX=e.touches[0].clientX; }, {passive:true});
+  document.addEventListener('touchend', e=>{
+    if(edgeStartX && e.changedTouches[0].clientX > 80 && window.innerWidth<=700){
+      document.getElementById('sidebar').classList.add('open'); history.pushState({sidebar:true},'');
+    }
+    edgeStartX=0;
+  });
+})();
+
+/* —— Predictive back ——— */
+window.addEventListener('popstate', e=>{
+  const pal=document.getElementById('palette');
+  if(pal.classList.contains('open')) pal.classList.remove('open');
+  const sb=document.getElementById('sidebar');
+  if(sb.classList.contains('open') && window.innerWidth<=700) sb.classList.remove('open');
+});
+function openSidebar(){
+  const sb=document.getElementById('sidebar');
+  if(!sb.classList.contains('open')){ sb.classList.add('open'); history.pushState({sidebar:true},''); }
+}
+// expose for toggle
+window.openSidebar=openSidebar;
+
+/* —— Prefetch next pages when hovering tabs/outline handled via prefetchPage ——— */
 </script>
 </body>
 </html>
