@@ -1,4 +1,4 @@
-# Contributing — VelocePDF Native
+# Contributing  -  VelocePDF Native
 
 ## Prerequisites
 
@@ -14,7 +14,7 @@ git clone https://github.com/TheronRadley/velocepdf.git
 cd velocepdf
 python3 -m venv venv && source venv/bin/activate
 pip install -r app/requirements.txt
-python app/main.py  # http://localhost:5173 — Tabler + Sumatra layout
+python app/main.py  # http://localhost:5173  -  Tabler + Sumatra layout
 make -C app/native && ./app/native/veloce-pdfinfo tests/fixtures/minimal.pdf
 # Optional C++ search:
 pip install pybind11 && python app/setup_search.py build_ext --inplace
@@ -22,20 +22,20 @@ pip install pybind11 && python app/setup_search.py build_ext --inplace
 
 ## Structure (Sumatra-inspired)
 
-- `app/main.py` — Flask + `fitz` (MuPDF C/ASM), like `MainWindow.cpp` + `EngineMupdf.cpp`
-- `app/core/pdf_engine.{h,cpp}` — `EngineBase` wrapper (stub, real in `fitz`)
-- `app/core/search_index.cpp` — C++ BMH (like `TextSearch.cpp`)
-- `app/core/blend.asm` — SSE2 blending (like `arch/x86/draw-blend.S`)
-- `app/native/pdfinfo.cpp` — C++ CLI (like `cmd/pdfinfo.cpp`)
-- `app/ui/templates/index.html` — Tabler (existing theme) + Sumatra's tabs/Frequently Read/Command Palette
-- `web-legacy/` — original React+PDF.js (MIT, archived)
-- `tests/` — `pytest` with MuPDF rendering regression, search, annotation round-trip, bomb, traversal
+- `app/main.py`  -  Flask + `fitz` (MuPDF C/ASM), like `MainWindow.cpp` + `EngineMupdf.cpp`
+- `app/core/pdf_engine.{h,cpp}`  -  `EngineBase` wrapper (stub, real in `fitz`)
+- `app/core/search_index.cpp`  -  C++ BMH (like `TextSearch.cpp`)
+- `app/core/blend.asm`  -  SSE2 blending (like `arch/x86/draw-blend.S`)
+- `app/native/pdfinfo.cpp`  -  C++ CLI (like `cmd/pdfinfo.cpp`)
+- `app/ui/templates/index.html`  -  Tabler (existing theme) + Sumatra's tabs/Frequently Read/Command Palette
+- `web-legacy/`  -  original React+PDF.js (MIT, archived)
+- `tests/`  -  `pytest` with MuPDF rendering regression, search, annotation round-trip, bomb, traversal
 
 ## Guidelines
 
-- Treat every PDF untrusted — no JS, no launch, no auto-fetch.
-- Keep engine off UI thread — `get_pixmap` in Flask thread, cancellable search.
-- Use existing Tabler — do not generate custom CSS from scratch (bloated, AI slop).
+- Treat every PDF untrusted  -  no JS, no launch, no auto-fetch.
+- Keep engine off UI thread  -  `get_pixmap` in Flask thread, cancellable search.
+- Use existing Tabler  -  do not generate custom CSS from scratch (bloated, AI slop).
 - Provide assembly where perf matters, but document fallback.
 
 ## PRs

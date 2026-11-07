@@ -1,12 +1,12 @@
 """
-VelocePDF — Native Core (Python + PyMuPDF/MuPDF + C++/ASM)
+VelocePDF  -  Native Core (Python + PyMuPDF/MuPDF + C++/ASM)
 Heavily inspired by SumatraPDF (https://github.com/sumatrapdfreader/sumatrapdf)
 
 Architecture mirroring SumatraPDF:
-- Engine: MuPDF via PyMuPDF (fitz) — C with hand-tuned Assembly (draw-blend.S, SSE2/NEON)
+- Engine: MuPDF via PyMuPDF (fitz)  -  C with hand-tuned Assembly (draw-blend.S, SSE2/NEON)
   SumatraPDF uses MuPDF as EngineMupdf.cpp; we use same via Python binding.
-- UI: Minimal chrome, tabs, Frequently Read, Command Palette (Ctrl+K) — directly from SumatraPDF
-- Design: Tabler (https://tabler.io) — existing theme, not AI-generated. We reuse Tabler CSS/JS via CDN.
+- UI: Minimal chrome, tabs, Frequently Read, Command Palette (Ctrl+K)  -  directly from SumatraPDF
+- Design: Tabler (https://tabler.io)  -  existing theme, not AI-generated. We reuse Tabler CSS/JS via CDN.
 
 Security: JS disabled in PDF, launch blocked, external links confirmed, no auto-fetch.
 """
@@ -16,7 +16,7 @@ from pathlib import Path
 from flask import Flask, request, jsonify, send_file, render_template, abort
 
 try:
-    import fitz  # PyMuPDF — MuPDF C + Assembly backend
+    import fitz  # PyMuPDF  -  MuPDF C + Assembly backend
     HAS_FITZ = True
 except ImportError:
     HAS_FITZ = False
@@ -57,6 +57,14 @@ def is_allowed_url(url: str) -> bool:
         return p.scheme.lower() in ALLOWED_SCHEMES
     except: return False
 
+@app.route("/terms")
+def terms():
+    return render_template("terms.html")
+
+@app.route("/privacy")
+def privacy():
+    return render_template("privacy.html")
+
 @app.route("/")
 def index():
     return render_template("index.html", has_cpp=HAS_CPP_SEARCH, has_fitz=HAS_FITZ)
@@ -79,7 +87,7 @@ def api_open():
     if len(data) > 200*1024*1024:
         return jsonify({"error": "File too large (200 MB limit)"}), 413
     name = sanitize_filename(f.filename or "document.pdf")
-    # Password handling — like SumatraPDF's PasswordUI
+    # Password handling  -  like SumatraPDF's PasswordUI
     password = request.form.get("password") or None
     try:
         doc = fitz.open(stream=data, filetype="pdf")
@@ -94,7 +102,7 @@ def api_open():
     doc_id = hashlib.sha256(data).hexdigest()[:12]
     DOCS[doc_id] = {"doc": doc, "name": name, "data": data, "password": None}
 
-    # Outline (like Sumatra's TocTree) — normalize to JSON
+    # Outline (like Sumatra's TocTree)  -  normalize to JSON
     outline = []
     try:
         toc = doc.get_toc()  # [[level, title, page, dest], ...]
@@ -219,7 +227,7 @@ def api_export_text(doc_id):
         txt = page.get_text("text")
         full += f"\n--- Page {i+1} ---\n" + txt
     if not full.strip():
-        return jsonify({"error": "No extractable text — image-only PDF, needs OCR"}), 400
+        return jsonify({"error": "No extractable text  -  image-only PDF, needs OCR"}), 400
     buf = io.BytesIO(full.encode("utf-8"))
     return send_file(buf, as_attachment=True, download_name=sanitize_filename(entry["name"]).replace(".pdf", ".txt"), mimetype="text/plain")
 
@@ -230,7 +238,7 @@ def api_info():
         "has_cpp_search": HAS_CPP_SEARCH,
         "has_fitz": HAS_FITZ,
         "sumatra_inspired": True,
-        "theme": "Tabler (https://tabler.io) — existing, not AI-generated",
+        "theme": "Tabler (https://tabler.io)  -  existing, not AI-generated",
         "security": "JS disabled, launch blocked, no auto-fetch, sanitized exports"
     })
 

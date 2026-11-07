@@ -1,4 +1,4 @@
-# Benchmarks — VelocePDF Native (MuPDF)
+# Benchmarks  -  VelocePDF Native (MuPDF)
 
 > Honest measurements on modest hardware, same methodology as web-legacy but with MuPDF.
 
@@ -47,6 +47,6 @@ curl -w %{time_starttransfer} http://localhost:5173
 
 ## Misses
 
-- First-page still > Sumatra's 0.1s (Python overhead); C++ direct fz_ would be faster — future `native/render.cpp` with `fz_run_page` directly.
-- No re-measurement of Assembly 3.2× — trust MuPDF docs, not fabricated.
+- First-page still > Sumatra's 0.1s (Python overhead); C++ direct fz_ would be faster  -  future `native/render.cpp` with `fz_run_page` directly.
+- No re-measurement of Assembly 3.2×  -  trust MuPDF docs, not fabricated.
 

@@ -5,7 +5,7 @@ import fitz
 def test_mupdf_render():
     doc = fitz.open()
     page = doc.new_page(width=600, height=800)
-    page.insert_text((50,700), "Hello VelocePDF — MuPDF C/ASM")
+    page.insert_text((50,700), "Hello VelocePDF  -  MuPDF C/ASM")
     pix = page.get_pixmap(dpi=72)
     assert pix.w == 595 or pix.w == 600
     assert pix.h > 0

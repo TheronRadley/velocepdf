@@ -1,4 +1,4 @@
-# Threat Model — VelocePDF (Sumatra-inspired, Native)
+# Threat Model  -  VelocePDF (Sumatra-inspired, Native)
 
 ## Assets & Adversaries
 
