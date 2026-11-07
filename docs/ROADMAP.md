@@ -1,39 +1,23 @@
-# Roadmap — VelocePDF
+# Roadmap — VelocePDF (Native)
 
-## Shipped in 0.1.0 (Current)
+## Shipped 0.2.0 — Native (Sumatra-inspired)
 
-- **Core reader**: file picker, drag-drop, CLI `?file=` param, tabs (independent sessions, crash isolation), continuous / single / two-page (cover) views, smooth scroll, zoom (50–200% + fit width/page/actual), rotation, page nav, thumbnails, outlines, text selection/copy, search (counts, nav, cancellation, highlights), password PDFs, metadata, session recents (optional, clearable), keyboard shortcuts, fullscreen/presentation, print, honest errors for malformed/damaged.
-- **Annotations & editing**: highlight (drag), underline/strikeout/note/ink stubs, undo/redo, edit/delete, Save/Save As (atomic temp+rename in Tauri, blob-download safe write in web), standard annotations via pdf-lib (usable in other readers), AcroForm filling supported where pdf-lib allows, unsupported form types flagged, page extract/reorder/rotate/delete (pdf-lib), export page to PNG, text extraction, signature invalidation warning, image-only honest message.
-- **Security**: JS/launch/external auto-fetch disabled, link confirmation + scheme allowlist, no auto attachment exec, filename sanitization, resource bounds (200 MB, 500 matches), no password persistence, temp 0600 + cleanup, optional history, zero network during reading, pinned deps, minimal CI, SECURITY.md private route.
-- **Design & a11y**: restrained UI, compact toolbar, collapsible sidebars, light/dark/system, high-DPI, keyboard nav, visible focus, ARIA, reduced-motion, honest scanned/untagged limitations.
-- **Platform**: Tauri config for Windows 10+/11, macOS 13+, Linux Ubuntu 22.04+/Fedora 38+, x64/arm64, CI builds, docs for signing/notarization.
+- MuPDF C+ASM via PyMuPDF, C++ BMH search, Assembly blend stub, Tabler theme (existing, not AI)
+- Flask `/api/page` pixmap streaming, tabs, Frequently Read, Command Palette (Ctrl+K), outline, search, password, metadata, print
+- Native `veloce-pdfinfo` C++ CLI, pybind11 extension, Java PDFBox optional
+- Security: JS/launch/auto-fetch disabled, allowlist, sanitized, 200MB/500 bounds, zero network
+- Tests: pytest 9 passing, MuPDF render regression, audit in CI
 
-## Next (0.2.x) — Quality gates
+## Shipped 0.1.0 — Legacy web (archived in web-legacy/)
 
-- Page extraction UI (drag to reorder, multi-select delete, rotate per-page).
-- Form filling UI completeness (checkbox, radio, dropdown; unsupported types greyed with tooltip).
-- Atomic save external-change detection with file watcher (Tauri mtime poll).
-- Visual regression suite (Playwright screenshots vs. golden, threshold 0.5%).
-- Installer signing/notarization automation (requires maintainer credentials; documented).
-- Performance: incremental search indexing via Worker indexing (avoid re-scanning on query change).
+- React+PDF.js+Tauri — kept for reference, not primary.
 
-## Later (0.3.x) — Optional, gated
+## Next 0.3.x
 
-- **Local OCR** with separately downloaded language packs (e.g., Tesseract WASM), SHA-256 verified, not loaded during ordinary reading. Adds `ocr/` lazy chunk.
-- Document comparison (side-by-side diff of text layers).
-- Advanced batch operations (bulk rotate/extract) with queue and cancellation.
-- Redaction (only when underlying content removal can be verified — not black rectangles).
+- Direct `fz_run_page` C++ renderer (no Python overhead) for <100 ms first-page (Sumatra-like)
+- Qt `desktop_qt.py` with QFluentWidgets (Fluent, existing) — native window, still Tabler for web preview
+- OCR language packs (SHA-256 verified, lazy)
+- Visual regression (playwright vs golden, 0.5% threshold)
 
-Not planned:
+Not planned: AI assistants, cloud sync, telemetry, accounts, plugin system.
 
-- AI assistants, collaboration, cloud sync, telemetry, advertising, accounts, plugin system.
-
-## Release Cadence
-
-- 0.1.x: patch for security + correctness.
-- 0.2.x: quarterly minor after quality gates pass on all platforms.
-- Optional features ship only after core quality gates are green.
-
-## How to Propose
-
-Open an issue with use-case, platform, and whether you can test on all claimed OSes. We prioritize small, maintainable changes.

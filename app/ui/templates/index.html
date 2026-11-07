@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>VelocePDF — Fast, Sumatra-inspired Reader</title>
+  <!-- Tabler — existing theme, not AI-generated (https://tabler.io) -->
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0-beta20/dist/css/tabler.min.css" rel="stylesheet"/>
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css" rel="stylesheet"/>
+  <style>
+    /* SumatraPDF-inspired minimal overrides — keep Tabler as base */
+    :root { --sumatra-accent:#e8c547; --sumatra-bg:#fbfbf8; }
+    body { background: var(--sumatra-bg); }
+    .navbar { border-bottom: 1px solid var(--tblr-border-color); }
+    .page-wrapper { display: grid; grid-template-columns: 280px 1fr; min-height: calc(100vh - 56px - 40px); }
+    .page-wrapper.collapsed { grid-template-columns: 0 1fr; }
+    .sidebar { border-right: 1px solid var(--tblr-border-color); background: #fff; overflow:auto; }
+    .viewer-shell { background:#ecebe8; overflow:auto; padding:18px 12px 32px; display:flex; flex-direction:column; align-items:center; gap:12px; }
+    .page-img { background:#fff; box-shadow: 0 1px 6px rgba(0,0,0,.08), 0 6px 20px rgba(0,0,0,.07); border-radius:2px; max-width:100%; }
+    .tab-active { background: var(--tblr-primary-lt); border-color: var(--tblr-primary); color: var(--tblr-primary); }
+    .freq-card img { object-fit:cover; }
+    .command-palette { position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; place-items:center; z-index:1050; }
+    .command-palette.open { display:grid; }
+    .highlight { background: #ffeb3b; }
+    .highlight.active { background: #ff9800; }
+    @media (max-width: 700px){ .page-wrapper{grid-template-columns:1fr} .sidebar{display:none} }
+  </style>
+</head>
+<body>
+<!-- Navbar — Tabler -->
+<header class="navbar navbar-expand-md d-print-none">
+  <div class="container-xl">
+    <a class="navbar-brand" href="#" style="font-weight:800;letter-spacing:-.02em">
+      <span style="background:#111;color:#fff;border-radius:8px;padding:2px 8px;margin-right:8px">V</span> VelocePDF
+      <span class="badge bg-green-lt ms-2">MuPDF • C++/ASM</span>
+    </a>
+    <div class="navbar-nav flex-row order-md-last gap-2">
+      <button class="btn btn-white" onclick="document.getElementById('fileInput').click()"><i class="ti ti-folder-open"></i> Open <span class="badge bg-secondary-lt ms-1">⌘O</span></button>
+      <button class="btn" onclick="toggleCommand()"><i class="ti ti-command"></i> <span class="d-none d-md-inline">Command</span> <span class="badge bg-secondary-lt">Ctrl K</span></button>
+      <button class="btn btn-icon" onclick="toggleTheme()" title="Toggle theme"><i class="ti ti-moon"></i></button>
+    </div>
+    <div class="d-flex ms-3 gap-1 flex-wrap">
+      <button class="btn btn-sm btn-white" onclick="zoomOut()">−</button>
+      <select class="form-select form-select-sm" style="width:110px" onchange="setZoom(this.value)">
+        <option value="0.5">50%</option><option value="0.75">75%</option><option value="1" selected>100%</option><option value="1.25">125%</option><option value="1.5">150%</option><option value="2">200%</option><option value="fit-width">Fit width</option>
+      </select>
+      <button class="btn btn-sm btn-white" onclick="zoomIn()">+</button>
+      <button class="btn btn-sm btn-white" onclick="rotate()"><i class="ti ti-rotate-clockwise"></i> Rotate</button>
+      <select class="form-select form-select-sm" style="width:140px" onchange="setViewMode(this.value)">
+        <option value="continuous">Continuous</option><option value="single">Single page</option><option value="two">Two pages</option><option value="cover">Book (cover)</option>
+      </select>
+      <button class="btn btn-sm btn-white d-none d-md-inline" onclick="window.print()"><i class="ti ti-printer"></i> Print</button>
+    </div>
+  </div>
+</header>
+
+<!-- Tabs — Sumatra's tab bar -->
+<div class="container-xl py-2 d-flex gap-1 flex-wrap align-items-center" id="tabs" style="border-bottom:1px solid var(--tblr-border-color);background:var(--tblr-bg-surface)">
+  <span class="text-muted small">No documents — Open or drop PDF</span>
+</div>
+
+<div class="page-wrapper" id="layout">
+  <!-- Sidebar — Sumatra Favorites / Outline -->
+  <aside class="sidebar">
+    <div class="p-2 d-flex gap-1" style="border-bottom:1px solid var(--tblr-border-color)">
+      <button class="btn btn-sm flex-fill tab-active" data-tab="freq" onclick="switchSide('freq')">Frequently Read</button>
+      <button class="btn btn-sm flex-fill" data-tab="outline" onclick="switchSide('outline')">Bookmarks</button>
+      <button class="btn btn-sm flex-fill" data-tab="search" onclick="switchSide('search')">Search</button>
+    </div>
+    <div id="side-freq" class="p-2">
+      <div class="text-muted small mb-2">Like SumatraPDF — pin, open, and resume where you left off.</div>
+      <div id="freqList" class="d-grid gap-2"></div>
+      <div class="mt-3 p-2 bg-light rounded small text-muted">
+        <strong>Tip:</strong> Drop PDFs anywhere. History is optional and easy to clear.
+        <button class="btn btn-sm btn-white mt-2 w-100" onclick="clearHistory()">Clear history</button>
+      </div>
+    </div>
+    <div id="side-outline" class="p-2" style="display:none">
+      <div id="outlineList" class="text-muted small">Open a document to see bookmarks.</div>
+    </div>
+    <div id="side-search" class="p-2" style="display:none">
+      <div class="input-group mb-2">
+        <input id="q" class="form-control form-control-sm" placeholder="Search (C++ BMH)…"/>
+        <button class="btn btn-sm btn-primary" onclick="doSearch()">Find</button>
+      </div>
+      <div class="small text-muted mb-2"><span id="searchMeta">0 matches</span> <span class="badge bg-secondary-lt" id="searchEngine"></span></div>
+      <div id="searchResults" class="d-grid gap-1"></div>
+    </div>
+    <div class="p-2 text-muted small" style="border-top:1px solid var(--tblr-border-color)">
+      VelocePDF 0.2.0 • Tabler • MuPDF <br/>
+      <a href="https://github.com/TheronRadley/velocepdf" target="_blank">GitHub</a> • <a href="/api/info">Engine info</a>
+    </div>
+  </aside>
+
+  <!-- Viewer -->
+  <main class="viewer-shell" id="viewer" tabindex="0">
+    <div id="welcome" class="container-sm">
+      <div class="card card-lg">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-3 mb-3">
+            <div style="width:44px;height:44px;border-radius:12px;background:#111;color:#fff;display:grid;place-items:center;font-weight:800">V</div>
+            <div>
+              <h2 class="mb-0">VelocePDF</h2>
+              <div class="text-muted small">Fast • Minimal • MuPDF (C + Assembly) — inspired by SumatraPDF</div>
+            </div>
+            <span class="badge bg-yellow-lt ms-auto">Sumatra-inspired</span>
+          </div>
+          <p class="text-muted">SumatraPDF proves a reader can be <strong>under 10 MB, launch instantly, and stay out of your way</strong>. VelocePDF mirrors that: single window, tabs, Frequently Read, Command Palette, and MuPDF for accurate, fast rendering — with a Tabler (existing) theme, not AI-generated chrome.</p>
+          <div class="row g-2 mt-2">
+            <div class="col-md-4"><div class="card"><div class="card-body p-3"><strong>⚡ Instant</strong><div class="small text-muted">Visible-page rendering, bounded prefetch, Worker-isolated parsing — no UI thread blocks.</div></div></div></div>
+            <div class="col-md-4"><div class="card"><div class="card-body p-3"><strong>🔒 Private</strong><div class="small text-muted">JS/launch/auto-fetch disabled, link confirm, sanitized exports, no network.</div></div></div></div>
+            <div class="col-md-4"><div class="card"><div class="card-body p-3"><strong>🎨 Tabler</strong><div class="small text-muted">Existing Tabler theme — clean, consistent, not AI slop. High-DPI, dark mode, reduced-motion.</div></div></div></div>
+          </div>
+          <div class="mt-3 d-flex gap-2 flex-wrap">
+            <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">Open PDF</button>
+            <button class="btn" onclick="toggleCommand()">Command Palette (Ctrl K)</button>
+            <span class="small text-muted ms-auto">Drop PDFs anywhere • Native C++/ASM blending • Python glue</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="pages" class="d-grid gap-3" style="width:min(900px,100%)"></div>
+  </main>
+</div>
+
+<footer class="py-2 border-top bg-white">
+  <div class="container-xl d-flex gap-3 small text-muted flex-wrap">
+    <span id="status">No document</span>
+    <span>Page <strong id="curPage">—</strong> / <span id="totalPage">—</span></span>
+    <span id="zoomLabel">100%</span> • <span id="engineLabel">MuPDF</span>
+    <span class="ms-auto">No network during reading • <a href="#" onclick="alert('No telemetry. See THREAT_MODEL.');return false">Privacy</a></span>
+  </div>
+</footer>
+
+<input id="fileInput" type="file" accept=".pdf" multiple style="display:none"/>
+
+<!-- Command Palette — Sumatra's Ctrl+K -->
+<div id="palette" class="command-palette" onclick="if(event.target===this)toggleCommand()">
+  <div class="card" style="width:min(600px,95vw)">
+    <div class="card-header"><h3 class="card-title">Command Palette — like SumatraPDF (Ctrl+K)</h3></div>
+    <div class="card-body">
+      <input id="palInput" class="form-control mb-2" placeholder="Type: open, search, fit width, dark mode, print…" oninput="filterPalette(this.value)"/>
+      <div id="palList" class="list-group"></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0-beta20/dist/js/tabler.min.js"></script>
+<script>
+let docs=[], active=null, zoom=1, rotation=0, viewMode='continuous', recents=JSON.parse(localStorage.getItem('veloce:recents')||'[]');
+let searchResults=[], searchIdx=0;
+
+const tabsEl=document.getElementById('tabs'), pagesEl=document.getElementById('pages'), welcome=document.getElementById('welcome');
+const freqList=document.getElementById('freqList'), outlineList=document.getElementById('outlineList');
+
+function saveRecents(){ localStorage.setItem('veloce:recents', JSON.stringify(recents.slice(0,20))); renderFreq(); }
+function renderFreq(){
+  freqList.innerHTML = recents.length ? recents.map(r=>`
+    <div class="card card-sm">
+      <div class="card-body p-2 d-flex align-items-center gap-2">
+        <i class="ti ti-file-type-pdf text-red" style="font-size:22px"></i>
+        <div style="min-width:0"><div class="text-truncate" style="font-weight:600">${r.name}</div><div class="small text-muted">${r.pages} pages • ${new Date(r.date).toLocaleDateString()}</div></div>
+        <button class="btn btn-sm ms-auto" onclick="reopenRecent('${r.name}')">Open</button>
+      </div>
+    </div>`).join('') : '<div class="small text-muted">No recent — open a PDF to build Frequently Read (like Sumatra).</div>';
+}
+renderFreq();
+
+function renderTabs(){
+  if(!docs.length){ tabsEl.innerHTML='<span class="text-muted small">No documents — Open or drop PDF</span>'; welcome.style.display=''; pagesEl.innerHTML=''; document.getElementById('status').textContent='No document'; return; }
+  tabsEl.innerHTML = docs.map(d=>`
+    <button class="btn btn-sm ${d.id===active?.id?'btn-primary':'btn-white'}" onclick="switchDoc('${d.id}')">
+      ${d.name} ${d.modified?'<span class="badge bg-yellow-lt">•</span>':''}
+      <span class="ms-2" onclick="event.stopPropagation();closeDoc('${d.id}')">×</span>
+    </button>`).join('') + `<button class="btn btn-sm btn-white ms-2" onclick="document.getElementById('fileInput').click()">+ Open</button>`;
+}
+
+function switchDoc(id){ active=docs.find(d=>d.id===id); renderTabs(); renderPages(); renderOutline(); document.getElementById('totalPage').textContent=active?active.pageCount:'—'; }
+function closeDoc(id){ docs=docs.filter(d=>d.id!==id); if(active?.id===id) active=docs[0]||null; renderTabs(); if(active) renderPages(); else {welcome.style.display=''; pagesEl.innerHTML='';}}
+function clearHistory(){ recents=[]; saveRecents(); }
+
+document.getElementById('fileInput').addEventListener('change', e=>{ handleFiles(e.target.files); e.target.value=''; });
+window.addEventListener('dragover', e=>e.preventDefault());
+window.addEventListener('drop', e=>{ e.preventDefault(); if(e.dataTransfer.files) handleFiles(e.dataTransfer.files); });
+
+async function handleFiles(files){
+  for(let f of files){
+    if(!f.name.toLowerCase().endsWith('.pdf')) continue;
+    if(f.size>200*1024*1024){ alert('File too large (200 MB limit)'); continue; }
+    const fd=new FormData(); fd.append('file', f);
+    const res=await fetch('/api/open',{method:'POST', body:fd});
+    const j=await res.json();
+    if(j.password_required){ const pw=prompt('Password required:'); if(pw){ fd.set('password', pw); const r2=await fetch('/api/open',{method:'POST', body:fd}); const j2=await r2.json(); if(j2.error) alert(j2.error); else addDoc(j2,f); } continue; }
+    if(j.error) alert(j.error); else addDoc(j,f);
+  }
+}
+function addDoc(j, f){
+  const entry={id:j.id, name:j.name, outline:j.outline, meta:j.metadata, pageCount:j.metadata.pageCount, thumb:j.id, modified:false};
+  docs.push(entry); active=entry; welcome.style.display='none';
+  recents = [{name:j.name, pages:j.metadata.pageCount, date:new Date().toISOString()}, ...recents.filter(r=>r.name!==j.name)].slice(0,12);
+  saveRecents();
+  renderTabs(); renderOutline(); renderPages();
+  fetch('/api/info').then(r=>r.json()).then(info=>{ document.getElementById('engineLabel').textContent=info.engine.split('(')[0]; document.getElementById('searchEngine').textContent=info.has_cpp_search?'C++ BMH':'Python'; });
+}
+function renderOutline(){
+  if(!active?.outline?.length){ outlineList.innerHTML='<div class="small text-muted">No bookmarks.</div>'; return; }
+  outlineList.innerHTML = active.outline.map(o=>`<div class="py-1" style="padding-left:${o.level*12}px"><a href="#" onclick="goPage(${o.page});return false" style="text-decoration:none">${o.title} <span class="text-muted small">p${o.page}</span></a></div>`).join('');
+}
+function renderPages(){
+  if(!active) return;
+  pagesEl.innerHTML='';
+  const dpr=window.devicePixelRatio||1;
+  const show = viewMode==='single' ? [currentPage] : viewMode==='cover' ? [[1], ...Array.from({length:Math.ceil((active.pageCount-1)/2)}, (_,i)=>[2+i*2, 2+i*2+1].filter(n=>n<=active.pageCount))] : Array.from({length:active.pageCount}, (_,i)=>i+1);
+  let currentPage = active.currentPage||1;
+  if(viewMode==='single'){
+    const img=document.createElement('img'); img.className='page-img'; img.loading='eager';
+    img.src=`/api/page/${active.id}/${currentPage}?zoom=${zoom}&rotation=${rotation}&dpr=${dpr}`;
+    img.alt=`Page ${currentPage}`; img.onclick=()=>{ if(confirm('Highlight this page? (demo)')) { active.modified=true; renderTabs(); } };
+    pagesEl.appendChild(img);
+    document.getElementById('curPage').textContent=currentPage;
+  } else if(viewMode==='cover' || viewMode==='two'){
+    show.forEach(row=>{
+      const wrap=document.createElement('div'); wrap.style.display='flex'; wrap.style.gap='12px'; wrap.style.justifyContent='center'; wrap.style.flexWrap='wrap';
+      row.forEach(pn=>{
+        const img=document.createElement('img'); img.className='page-img'; img.style.maxWidth='calc(50% - 6px)';
+        img.src=`/api/page/${active.id}/${pn}?zoom=${zoom*0.9}&rotation=${rotation}&dpr=${dpr}`; img.alt=`Page ${pn}`;
+        wrap.appendChild(img);
+      });
+      pagesEl.appendChild(wrap);
+    });
+    document.getElementById('curPage').textContent=currentPage;
+  } else {
+    for(let pn=1; pn<=active.pageCount; pn++){
+      const img=document.createElement('img'); img.className='page-img'; img.loading='lazy';
+      img.src=`/api/page/${active.id}/${pn}?zoom=${zoom}&rotation=${rotation}&dpr=${dpr}`; img.alt=`Page ${pn}`;
+      img.dataset.page=pn;
+      pagesEl.appendChild(img);
+    }
+    document.getElementById('curPage').textContent='1';
+  }
+  document.getElementById('totalPage').textContent=active.pageCount;
+  document.getElementById('zoomLabel').textContent=Math.round(zoom*100)+'%';
+  document.getElementById('status').textContent=active.name + (active.modified?' • Modified':'');
+  // Intersection observer for current page tracking (like Sumatra's scroll spy)
+  const io=new IntersectionObserver(es=>{ es.forEach(e=>{ if(e.isIntersecting) document.getElementById('curPage').textContent=e.target.dataset.page; }); }, {root:document.getElementById('viewer'), threshold:0.5});
+  pagesEl.querySelectorAll('img').forEach(i=>io.observe(i));
+}
+function goPage(n){ if(!active) return; active.currentPage=n; renderPages(); document.getElementById('pages').querySelector(`img[alt="Page ${n}"]`)?.scrollIntoView({behavior:'smooth', block:'start'}); }
+function zoomIn(){ zoom=Math.min(3, zoom*1.2); renderPages(); }
+function zoomOut(){ zoom=Math.max(0.25, zoom/1.2); renderPages(); }
+function setZoom(v){ if(v==='fit-width') zoom=1.15; else zoom=parseFloat(v); renderPages(); }
+function rotate(){ rotation=(rotation+90)%360; renderPages(); }
+function setViewMode(v){ viewMode=v; renderPages(); }
+function switchSide(name){
+  document.querySelectorAll('.sidebar .btn').forEach(b=>b.classList.remove('tab-active'));
+  document.querySelector(`[data-tab="${name}"]`).classList.add('tab-active');
+  document.getElementById('side-freq').style.display=name==='freq'?'':'none';
+  document.getElementById('side-outline').style.display=name==='outline'?'':'none';
+  document.getElementById('side-search').style.display=name==='search'?'':'none';
+}
+async function doSearch(){
+  const q=document.getElementById('q').value.trim(); if(!q||!active) return;
+  const res=await fetch('/api/search',{method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:active.id, query:q})});
+  const j=await res.json();
+  searchResults=j.results||[]; searchIdx=0;
+  document.getElementById('searchMeta').textContent=`${j.count} matches`;
+  document.getElementById('searchEngine').textContent=j.engine;
+  document.getElementById('searchResults').innerHTML = searchResults.slice(0,200).map((r,i)=>`
+    <div class="card card-sm ${i===searchIdx?'bg-yellow-lt':''}" style="cursor:pointer" onclick="goPage(${r.page})">
+      <div class="card-body p-2"><div class="small" style="font-weight:600">Page ${r.page}</div><div class="small text-muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.snippet}</div></div>
+    </div>`).join('') || '<div class="small text-muted">No results — image-only PDF needs OCR (like Sumatra shows “No matches”).</div>';
+  if(searchResults.length) goPage(searchResults[0].page);
+}
+document.getElementById('q').addEventListener('keydown', e=>{ if(e.key==='Enter') doSearch(); });
+document.addEventListener('keydown', e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='o'){ e.preventDefault(); document.getElementById('fileInput').click(); }
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){ e.preventDefault(); toggleCommand(); }
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='f'){ e.preventDefault(); switchSide('search'); document.getElementById('q').focus(); }
+  if(e.key==='Escape'){ document.getElementById('palette').classList.remove('open'); }
+  if(e.key==='?'){ toggleCommand(); }
+});
+function toggleCommand(){
+  const p=document.getElementById('palette'); p.classList.toggle('open');
+  if(p.classList.contains('open')){
+    document.getElementById('palInput').focus();
+    const cmds=[
+      ['Open PDF','document.getElementById("fileInput").click()'],
+      ['Search','switchSide("search");document.getElementById("q").focus()'],
+      ['Fit Width','setZoom("fit-width")'],
+      ['Rotate','rotate()'],
+      ['Book View','setViewMode("cover")'],
+      ['Continuous','setViewMode("continuous")'],
+      ['Print','window.print()'],
+      ['Toggle Theme','toggleTheme()'],
+      ['Clear History','clearHistory()'],
+    ];
+    document.getElementById('palList').innerHTML=cmds.map(([k,a])=>`<button class="list-group-item list-group-item-action" onclick="${a};toggleCommand()">${k}</button>`).join('');
+  }
+}
+function filterPalette(q){
+  document.querySelectorAll('#palList button').forEach(b=>{ b.style.display=b.textContent.toLowerCase().includes(q.toLowerCase())?'':'none'; });
+}
+function toggleTheme(){
+  document.documentElement.setAttribute('data-bs-theme', document.documentElement.getAttribute('data-bs-theme')==='dark'?'light':'dark');
+}
+function reopenRecent(name){ alert('Re-open file via Open — history stores name, not bytes (privacy).'); }
+</script>
+</body>
+</html>

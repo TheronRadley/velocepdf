@@ -1,79 +1,49 @@
-# Contributing to VelocePDF
+# Contributing — VelocePDF Native
 
-Thanks for considering a contribution. VelocePDF is a small, maintainable open-source PDF reader. We value correctness, accessibility, and privacy over feature breadth.
+## Prerequisites
 
-## Getting Started
+- Python 3.11+, `pip install -r app/requirements.txt` (PyMuPDF, Flask)
+- Optional: `g++` 12+, `python3-dev`, `pybind11` for C++ `veloce_search` extension
+- Optional: `nasm` for `blend.asm`, `Java` for PDFBox tooling
+- For legacy web: Node 20+, `npm install` in `web-legacy/`
 
-### Prerequisites
-
-- Node.js 20+ and npm 10+
-- For desktop builds: Rust 1.77+ and OS-specific prerequisites:
-  - **Windows**: WebView2 (evergreen), Visual Studio Build Tools with C++.
-  - **macOS**: Xcode Command Line Tools, 10.15+ (Intel) or 11+ (Apple Silicon).
-  - **Linux**: `webkit2gtk-4.1`, `libayatana-appindicator3`, `librsvg2-dev`, `libssl-dev` (see Tauri prerequisites).
-
-### Setup
+## Setup
 
 ```bash
 git clone https://github.com/TheronRadley/velocepdf.git
 cd velocepdf
-npm install
-npm run dev        # web preview at http://localhost:5173
-npm run build      # production build to dist/
-npm test           # unit tests
-npm run typecheck  # type checking
+python3 -m venv venv && source venv/bin/activate
+pip install -r app/requirements.txt
+python app/main.py  # http://localhost:5173 — Tabler + Sumatra layout
+make -C app/native && ./app/native/veloce-pdfinfo tests/fixtures/minimal.pdf
+# Optional C++ search:
+pip install pybind11 && python app/setup_search.py build_ext --inplace
 ```
 
-For Tauri (desktop):
+## Structure (Sumatra-inspired)
 
-```bash
-npm run tauri:dev   # requires Rust
-npm run tauri:build # produces .deb/.AppImage, .msi, .dmg (platform-dependent)
-```
+- `app/main.py` — Flask + `fitz` (MuPDF C/ASM), like `MainWindow.cpp` + `EngineMupdf.cpp`
+- `app/core/pdf_engine.{h,cpp}` — `EngineBase` wrapper (stub, real in `fitz`)
+- `app/core/search_index.cpp` — C++ BMH (like `TextSearch.cpp`)
+- `app/core/blend.asm` — SSE2 blending (like `arch/x86/draw-blend.S`)
+- `app/native/pdfinfo.cpp` — C++ CLI (like `cmd/pdfinfo.cpp`)
+- `app/ui/templates/index.html` — Tabler (existing theme) + Sumatra's tabs/Frequently Read/Command Palette
+- `web-legacy/` — original React+PDF.js (MIT, archived)
+- `tests/` — `pytest` with MuPDF rendering regression, search, annotation round-trip, bomb, traversal
 
-## Project Structure
+## Guidelines
 
-- `src/` — React + TypeScript frontend (toolbar, sidebar, viewer, worker isolation)
-- `src/lib/pdfEngine.ts` — PDF.js configuration (JS disabled, bounded options)
-- `src/lib/sanitize.ts` — URL scheme allowlist, filename sanitization
-- `src/lib/storage.ts` — optional history, localStorage with clear
-- `src-tauri/` — Rust shell, secure IPC, atomic save (when built as desktop app)
-- `tests/` — unit + integration tests, fixtures (redistributable)
-- `docs/` — architecture, threat model, benchmarks, roadmap
-- `.github/workflows/` — CI for lint, typecheck, tests, builds, audit
+- Treat every PDF untrusted — no JS, no launch, no auto-fetch.
+- Keep engine off UI thread — `get_pixmap` in Flask thread, cancellable search.
+- Use existing Tabler — do not generate custom CSS from scratch (bloated, AI slop).
+- Provide assembly where perf matters, but document fallback.
 
-## Development Guidelines
+## PRs
 
-- **Treat every PDF as untrusted**. Do not enable `eval`, JS execution, launch actions, or auto-fetch.
-- Keep document work off the UI thread — use Workers and cancellable jobs.
-- Prefer bounded caches and explicit resource limits.
-- Maintain typed interfaces and minimal global state.
-- Respect accessibility: keyboard navigation, visible focus, ARIA labels, contrast, reduced-motion.
-- No telemetry, no accounts, no cloud sync, no AI assistants.
-- Do not implement redaction as black rectangles; content removal must be verified or omitted.
-
-## Pull Requests
-
-1. Open an issue first for large changes.
-2. Keep PRs focused; include tests for new logic.
-3. Ensure: `npm run typecheck`, `npm test`, `npm run build` all pass.
-4. For visual changes, include before/after screenshots.
-5. Update docs where behavior changes.
-
-PRs run CI on Windows, macOS, and Linux (build verification). Maintainers will review for security and accessibility.
-
-## Reporting Issues
-
-Use GitHub Issues. For security-sensitive reports, see [SECURITY.md](SECURITY.md) and use the private advisory route — do not post exploit details publicly.
-
-Include: OS version, architecture, app version, steps to reproduce, and (if possible) a minimal sample PDF that is legally redistributable.
-
-## Code Style
-
-- TypeScript strict, ESLint + Prettier.
-- Run `npm run format:write` before committing if needed.
-- Commit messages: imperative, e.g., "feat: add two-page cover handling".
+1. Issue first for large changes.
+2. `pytest`, `python app/main.py` manual smoke, `make -C app/native` clean.
+3. CI runs on ubuntu/windows/macos (Python + C++ + Java where needed).
 
 ## License
 
-By contributing, you agree that your contributions are licensed under the MIT license in [LICENSE](LICENSE).
+By contributing you agree AGPL-3.0 (native) / MIT (web-legacy).
